@@ -11,6 +11,7 @@ $service = file_get_contents($root.'/deploy/systemd/hache-miner-poll.service');
 $health = file_get_contents($root.'/public/health.php');
 $activate = file_get_contents($root.'/deploy/activate.sh');
 $installer = file_get_contents($root.'/deploy/install-https-web.sh');
+$upgrade = file_get_contents($root.'/deploy/upgrade-miner-vhost.sh');
 assert_deploy(str_contains($nginx, 'root /srv/hache-miner/current/public'), 'Webroot must be public');
 assert_deploy(str_contains($nginx, 'location ~ \\.php$ { return 404; }'), 'Other PHP scripts must not be served');
 assert_deploy(str_contains($nginx, 'ssl_certificate_key'), 'TLS required');
@@ -36,4 +37,8 @@ assert_deploy(str_contains($installer, "acme_ready=0"), 'ACME location must be c
 assert_deploy(str_contains($installer, "MINER_ACME_ROUTE_READY"), 'ACME route must return the exact challenge probe');
 assert_deploy(str_contains($installer, "https_ready=0"), 'HTTPS readiness must handle asynchronous reload');
 assert_deploy(str_contains($installer, "--noproxy '*'"), 'Local preflight must bypass outbound proxies');
+assert_deploy(str_contains($nginx, 'SCRIPT_FILENAME $realpath_root/index.php'), 'FPM entrypoint must follow immutable releases, not cached symlink');
+assert_deploy(str_contains($nginx, 'SCRIPT_FILENAME $realpath_root/health.php'), 'Health entrypoint must follow immutable release');
+assert_deploy(str_contains($upgrade, 'MINER_VHOST_ROLLED_BACK'), 'Dedicated vhost rollback required');
+assert_deploy(str_contains($upgrade, 'Recordar este dispositivo durante 30 días'), 'Nginx rollout requires new PHP UI verification');
 echo "PASS deploy-isolation-regression\n";
