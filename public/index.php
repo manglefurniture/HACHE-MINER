@@ -5,6 +5,7 @@ require_once dirname(__DIR__).'/app/diagnostics.php';
 require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/finances.php';
+require_once dirname(__DIR__).'/app/accounting.php';
 require_once dirname(__DIR__).'/app/reallocate.php';
 miner_security_headers();
 try {
@@ -89,6 +90,15 @@ try {
                     $st=miner_db()->prepare('INSERT INTO gpu_rates (organization,gpu_class,priority,usd_per_hour) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE usd_per_hour=VALUES(usd_per_hour),effective_at=CURRENT_TIMESTAMP');
                     $st->execute([$org,$gpu,$priority,$rate]);
                     miner_audit($uid,'gpu_rate_updated',$org);
+                } elseif ($action==='accounting_event') {
+                    if ($page!=='finance' || !miner_accounting_ready()) {
+                        throw new DomainException('Accounting feature not initialized');
+                    }
+                    $knownOrgs=array_values(array_unique(array_column(miner_salad_targets(false),'organization_slug')));
+                    $validated=miner_accounting_validate($_POST,$knownOrgs);
+                    miner_accounting_insert($uid,$validated);
+                    $_SESSION['accounting_saved']='Movimiento contable registrado. Referencia única; no se cuentan automáticamente saldos como cobros.';
+                    header('Location: /?page=finance',true,303);exit;
                 } elseif ($action==='charge') {
                     $org=(string)($_POST['organization']??'');$amount=miner_finite_decimal($_POST['amount_usd']??null,4);
                     $start=(string)($_POST['period_start']??'');$end=(string)($_POST['period_end']??'');$reference=trim((string)($_POST['source_reference']??''));
@@ -108,7 +118,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -150,7 +160,15 @@ try {
                 $reallocationTarget=null;
             }
         }
-        if ($page==='finance') $financeData=miner_finance_overview();
+        if ($page==='finance') {
+            $financeData=miner_finance_overview();
+            $ledgerData=miner_accounting_overview();
+            $ledgerPool=miner_pool_overview();
+            if (isset($_SESSION['accounting_saved']) && is_string($_SESSION['accounting_saved'])) {
+                $ledgerSaved=$_SESSION['accounting_saved'];
+                unset($_SESSION['accounting_saved']);
+            }
+        }
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='settings') {
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
@@ -298,18 +316,89 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php endforeach;endforeach; ?>
 </section>
 <?php elseif($page==='finance'): ?>
-<section class="card"><h2>Finanzas · cobertura de gastos</h2>
-<p class="muted">Los cargos facturados se separan de las estimaciones, que se basan exclusivamente en muestras consecutivas de instancias listas y tarifas registradas. Ninguna cifra estimada sustituye la factura de Salad.</p>
-<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Cargos conciliados históricos (USD)</th><th>Comprobantes</th><th>Estimación observada 24 h (USD)</th><th>Muestras con tarifa</th><th>Muestras sin estimación</th></tr></thead><tbody>
+<section class="card">
+<h2>Contabilidad de minería · USD y PRL</h2>
+<p class="muted">El flujo de caja registrado es diferente al costo de GPU consumido. Las recargas de Salad son anticipos de crédito; sus cargos por uso se registran aparte y <strong>no se restan otra vez</strong> al flujo de caja. Los saldos de Kryptex y transferencias PRL no son dólares cobrados.</p>
+<?php if($ledgerSaved!==null): ?><p class="success"><?= miner_h($ledgerSaved) ?></p><?php endif; ?>
+<?php if(!$ledgerData['ready']): ?>
+<p class="error">El libro contable todavía no está habilitado: falta aplicar la migración privada 004 desde el servidor como administrador root. El monitor y los datos existentes siguen funcionando.</p>
+<?php else: ?>
+<div class="kpis">
+<div><strong><?= $ledgerData['registered_cash_in']===null?'Sin registros':'$'.miner_h(number_format((float)$ledgerData['registered_cash_in'],2)) ?></strong><small>Entradas registradas USD equivalente</small></div>
+<div><strong><?= $ledgerData['registered_cash_out']===null?'Sin registros':'$'.miner_h(number_format((float)$ledgerData['registered_cash_out'],2)) ?></strong><small>Salidas registradas USD equivalente</small></div>
+<div><strong><?= $ledgerData['registered_cash_net']===null?'Desconocido':'$'.miner_h(number_format((float)$ledgerData['registered_cash_net'],2)) ?></strong><small>Flujo neto registrado (no utilidad)</small></div>
+<div><strong><?= $ledgerData['prl_sold']===null?'Sin registros':miner_h(number_format((float)$ledgerData['prl_sold'],6)) ?></strong><small>PRL vendidos con comprobante</small></div>
+</div>
+<?php endif; ?>
+<div class="accounting-grid">
+<div class="accounting-panel">
+<h3>Kryptex · existencias observadas</h3>
+<p><strong><?= $ledgerPool['all_balances_fresh']?miner_h($ledgerPool['confirmed_prl']).' PRL':'Lectura incompleta' ?></strong><small> Confirmados en el pool (no vendidos)</small></p>
+<p><strong><?= $ledgerPool['all_balances_fresh']?miner_h($ledgerPool['pending_prl']).' PRL':'Sin datos completos' ?></strong><small> Pendientes de confirmar</small></p>
+<p class="muted">Una billetera compartida se cuenta una sola vez. Estas fotografías de saldo no son ingresos por periodo.</p>
+</div>
+<div class="accounting-panel">
+<h3>Salad · consumo facturado</h3>
+<p class="muted">Los cargos de uso de GPU se concilian con referencias de factura en Configuración. Nunca se deducen también las recargas del costo de producción.</p>
 <?php foreach($financeData as $fin): ?>
-<tr><td data-label="Organización"><?= miner_h(strtoupper($fin['org'])) ?></td>
-<td data-label="Cargos verificados"><?= miner_h($fin['charges_usd']??'Sin conciliar') ?></td>
-<td data-label="Comprobantes"><?= (int)$fin['charge_count'] ?></td>
-<td data-label="Costos observados 24 h"><?= miner_h($fin['estimated_24h_usd']??'Sin tarifas verificadas') ?></td>
-<td data-label="Con tarifa"><?= (int)$fin['priced_samples'] ?></td>
-<td data-label="Sin estimación"><?= (int)$fin['unpriced_samples'] ?></td>
-</tr><?php endforeach; ?></tbody></table></div>
-<p class="muted">Pendiente: integrar cargos reales de Salad y ventas netas de PRL. Los saldos confirmados de Kryptex son activos en el pool, no ingresos realizados. Una billetera compartida no puede atribuirse a una sola organización sin identificadores de worker.</p>
+<p><strong><?= miner_h(strtoupper($fin['org'])) ?>:</strong> <?= miner_h($fin['charges_usd']??'Sin conciliar') ?> <?= $fin['charges_usd']!==null?'USD facturados':'· facturas pendientes' ?>
+<small> · estimación parcial 24 h: <?= miner_h($fin['estimated_24h_usd']??'sin cobertura suficiente') ?> USD</small></p>
+<?php endforeach; ?>
+</div>
+</div>
+<?php if($ledgerData['ready']): ?>
+<section class="accounting-panel">
+<h3>Registrar movimiento con comprobante</h3>
+<p class="muted">No introduzcas saldo pendiente como venta. Para una venta PRL introduce PRL vendidos, USD/USDT bruto recibido y comisión: el sistema calcula la entrada neta. Para una recarga de Salad registra solo el dinero que salió realmente, no el consumo de GPU. Fechas UTC.</p>
+<form method="post" action="/?page=finance">
+<input type="hidden" name="csrf" value="<?= $csrf ?>">
+<div class="accounting-input-grid">
+<label>Tipo de movimiento
+<select name="movement_type" required>
+<?php foreach(miner_accounting_types() as $type=>$name): ?>
+<option value="<?= miner_h($type) ?>"><?= miner_h($name) ?></option>
+<?php endforeach; ?>
+</select></label>
+<label>Organización (obligatoria para pagos Salad y otros cobros/gastos)
+<select name="movement_org">
+<option value="">Compartido / sin atribución</option>
+<?php foreach(array_unique(array_column($targets,'organization_slug')) as $org): ?>
+<option value="<?= miner_h($org) ?>"><?= miner_h(strtoupper($org)) ?></option>
+<?php endforeach; ?>
+</select></label>
+<label>Fecha y hora UTC (AAAA-MM-DD HH:MM:SS)
+<input required name="movement_date" value="<?= gmdate('Y-m-d H:i:s') ?>" maxlength="19"></label>
+<label>USD bruto o USD equivalente (solo movimientos monetarios)
+<input name="movement_usd" inputmode="decimal" placeholder="Ej. 10.00000000" maxlength="22"></label>
+<label>PRL transferidos, pagados o vendidos (solo movimientos PRL)
+<input name="movement_prl" inputmode="decimal" placeholder="Ej. 50.25000000" maxlength="25"></label>
+<label>Comisión de venta en USD (solo venta PRL)
+<input name="movement_fee" inputmode="decimal" placeholder="Ej. 0.10000000" maxlength="22"></label>
+<label>Referencia única del comprobante
+<input required name="movement_reference" maxlength="180" placeholder="ID de recibo, TXID, operación exchange"></label>
+<label>Nota opcional
+<input name="movement_memo" maxlength="300" placeholder="Ej. pago de crédito Salad con USDC"></label>
+</div>
+<button name="action" value="accounting_event">Registrar movimiento comprobado</button>
+</form>
+</section>
+<section class="accounting-panel">
+<h3>Últimos movimientos registrados</h3>
+<?php if(!$ledgerData['entries']): ?><p class="muted">Aún no hay movimientos. No se mostrará flujo de caja cero como si todos los registros estuvieran completos.</p><?php else: ?>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>UTC</th><th>Movimiento</th><th>Organización</th><th>USD bruto</th><th>Comisión USD</th><th>PRL</th><th>Referencia</th></tr></thead><tbody>
+<?php foreach($ledgerData['entries'] as $e): ?>
+<tr><td data-label="UTC"><?= miner_h($e['occurred_at']) ?></td>
+<td data-label="Movimiento"><?= miner_h(miner_accounting_types()[$e['event_type']]??$e['event_type']) ?></td>
+<td data-label="Organización"><?= miner_h($e['organization']??'Compartido') ?></td>
+<td data-label="USD bruto"><?= miner_h($e['usd_amount']??'—') ?></td>
+<td data-label="Comisión USD"><?= miner_h($e['usd_fee']??'—') ?></td>
+<td data-label="PRL"><?= miner_h($e['prl_amount']??'—') ?></td>
+<td data-label="Referencia"><?= miner_h($e['source_reference']) ?><small><?= miner_h($e['memo']) ?></small></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<?php endif; ?>
+</section>
+<?php endif; ?>
+<p class="muted">**Cobertura:** solo incluye operaciones con comprobantes añadidas a este sistema. La diferencia entradas menos salidas NO equivale a utilidad neta ni a saldo disponible en Salad, SafeTrade o bancos; existen fondos PRL pendientes, inversiones prepagadas y costos todavía sin conciliar.</p>
 </section>
 <?php elseif($page==='diagnostics'): ?>
 <section class="card"><h2>SaladCloud · Estado de lectura</h2>

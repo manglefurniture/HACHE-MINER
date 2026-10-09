@@ -25,6 +25,8 @@ $poll = file_get_contents($root.'/bin/poll.php');
 $reallocate = file_get_contents($root.'/app/reallocate.php');
 $monitor = file_get_contents($root.'/app/monitor.php');
 $finance = file_get_contents($root.'/app/finances.php');
+$accounting = file_get_contents($root.'/app/accounting.php');
+$accountingSql = file_get_contents($root.'/database/004_accounting_events.sql');
 assert_deploy(str_contains($nginx, 'root /srv/hache-miner/current/public'), 'Webroot must be public');
 assert_deploy(str_contains($nginx, 'location ~ \\.php$ { return 404; }'), 'Other PHP scripts must not be served');
 assert_deploy(str_contains($nginx, 'ssl_certificate_key'), 'TLS required');
@@ -113,4 +115,8 @@ assert_deploy(str_contains($poll, "hashrate_ths,gpu_model,watts"), 'Per-instance
 assert_deploy(str_contains($monitor, 'miner_monitor_log_instance('), 'Multi-replica GPU log IDs must be verified, not guessed');
 assert_deploy(str_contains($monitor, 'INTERVAL 8 HOUR'), 'Old deleted groups must be hidden but not deleted');
 assert_deploy(!str_contains($monitor, 'DELETE FROM group_state'), 'Filter-only retention must preserve financial and diagnostic history');
+assert_deploy(str_contains($accountingSql, 'UNIQUE KEY uq_accounting_ref'), 'Receipt references need DB uniqueness');
+assert_deploy(str_contains($accounting, 'miner_accounting_ready()'), 'Accounting requires an explicit DB migration');
+assert_deploy(str_contains($dashboard, 'name="movement_reference"'), 'Ledger events must be tied to receipts');
+assert_deploy(str_contains($accounting, "prl_transfer"), 'PRL transfer cannot become cash income');
 echo "PASS deploy-isolation-regression\n";

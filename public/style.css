@@ -142,3 +142,10 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
  .monitor-node-facts{grid-template-columns:1fr}
  .monitor-node-grid{grid-template-columns:1fr}
 }
+
+.accounting-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:22px 0}
+.accounting-panel{border:1px solid var(--outline);border-radius:12px;padding:17px;background:#0d1b2c;margin:16px 0;min-width:0}
+.accounting-panel h3{margin:0 0 12px;font-size:1.05rem}
+.accounting-panel small{display:block;font-size:.75rem;color:var(--muted)}
+.accounting-input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px}
+@media(max-width:740px){.accounting-grid,.accounting-input-grid{grid-template-columns:1fr}.accounting-panel{padding:12px}}
