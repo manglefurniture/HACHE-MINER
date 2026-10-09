@@ -115,11 +115,12 @@ function miner_finite_decimal(mixed $value,int $decimals=6): ?string {
     if (!is_numeric($value) || !is_finite((float)$value) || (float)$value<0) return null;
     return number_format((float)$value,$decimals,'.','');
 }
-function miner_http_json(string $url,array $headers=[]): array {
+function miner_http_json(string $url,array $headers=[],int $timeout=20): array {
+    if ($timeout<3 || $timeout>20) throw new InvalidArgumentException('Timeout outside collector limits.');
     $host=parse_url($url,PHP_URL_HOST);
     if (!in_array($host,['api.salad.com','pool.kryptex.com'],true) || !str_starts_with($url,'https://')) throw new InvalidArgumentException('Destino API no permitido.');
     $ch=curl_init($url);
-    curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>7,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HTTPHEADER=>$headers,CURLOPT_MAXREDIRS=>0,CURLOPT_USERAGENT=>'HACHE-MINER/0.1']);
+    curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>$timeout,CURLOPT_CONNECTTIMEOUT=>min(7,$timeout),CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HTTPHEADER=>$headers,CURLOPT_MAXREDIRS=>0,CURLOPT_USERAGENT=>'HACHE-MINER/0.1']);
     $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
     if (!is_string($raw) || $status<200 || $status>=300 || strlen($raw)>1500000) throw new RuntimeException('Consulta externa no disponible (HTTP '.$status.').');
     $out=json_decode($raw,true,512,JSON_THROW_ON_ERROR);
