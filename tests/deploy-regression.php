@@ -161,4 +161,11 @@ assert_deploy(str_contains($interactiveTimer, 'OnCalendar=*:4/5'), 'Run automati
 assert_deploy(str_contains($interactiveInstall, 'MINER_INTERACTIVE_AUTO_ENABLED=0'), 'Root installer must run a dry-run before activation');
 assert_deploy(str_contains($interactiveInstall, 'LEGACY_HACHE_TIMER_PRESERVED'), 'Installer must preserve existing automatic protection');
 assert_deploy(!str_contains($poll, 'miner_auto_execute('), 'Read-only collector must stay read-only');
+assert_deploy(str_contains($monitor, "function miner_monitor_live_hashrate("), 'Dashboard must calculate an evidence-backed per-instance aggregate');
+assert_deploy(str_contains($monitor, "'live_hashrate'=>miner_monitor_live_hashrate("), 'Live total must be derived from the same observations as cards');
+assert_deploy(str_contains($dashboard, 'class="monitor-live-summary"'), 'Hashrate total must be immediately visible on monitor');
+assert_deploy(str_contains($dashboard, "'measured'") && str_contains($dashboard, "'missing'"), 'Coverage counts must be visible alongside the sum');
+assert_deploy(str_contains($dashboard, "Última medición efectiva por GPU") || str_contains($dashboard,'última medición efectiva por GPU'), 'Aggregate must say it is based on effective readings');
+assert_deploy(str_contains($css, '.monitor-live-value'), 'Prominent numeric summary styling must be present');
+assert_deploy(!str_contains($poll, 'miner_auto_execute('), 'Collector must remain read-only');
 echo "PASS deploy-isolation-regression\n";
