@@ -149,3 +149,27 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
 .accounting-panel small{display:block;font-size:.75rem;color:var(--muted)}
 .accounting-input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px}
 @media(max-width:740px){.accounting-grid,.accounting-input-grid{grid-template-columns:1fr}.accounting-panel{padding:12px}}
+
+/* Large numeric header for provably measured TH/s, not estimated revenue. */
+.monitor-live-summary{display:flex;align-items:stretch;justify-content:space-between;flex-wrap:wrap;
+  gap:20px;border:1px solid #35516c;border-radius:14px;background:#0f2136;
+  padding:20px 22px;margin:18px 0 12px}
+.monitor-live-main{flex:2 1 340px;min-width:0}
+.monitor-live-label{display:block;color:var(--muted);font-size:.84rem;font-weight:700}
+.monitor-live-value{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:8px 0 9px;
+  color:#74e3be;font-variant-numeric:tabular-nums}
+.monitor-live-value strong{font-size:clamp(2.1rem,5vw,3.3rem);line-height:1.1;letter-spacing:-.04em}
+.monitor-live-value span{font-size:1.2rem;font-weight:700}
+.monitor-live-value .monitor-live-empty{font-size:1.38rem;color:var(--muted);letter-spacing:normal}
+.monitor-live-coverage{font-size:.84rem;margin:0;color:var(--text)}
+.monitor-live-coverage strong{color:#ffce89}
+.monitor-live-timestamp{font-size:.72rem;margin:8px 0 0}
+.monitor-live-orgs{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));
+  flex:1 1 300px;gap:12px;align-content:center}
+.monitor-live-orgs>div{padding:10px 12px;border:1px solid #304a62;border-radius:10px}
+.monitor-live-orgs span{display:block;font-size:.76rem;color:var(--muted);font-weight:700}
+.monitor-live-orgs strong{display:block;font-size:1.1rem;margin:5px 0;
+  font-variant-numeric:tabular-nums}
+.monitor-live-orgs small{display:block;font-size:.73rem;color:var(--muted)}
+@media(max-width:720px){.monitor-live-summary{padding:15px;gap:12px}
+  .monitor-live-orgs{flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr))}}

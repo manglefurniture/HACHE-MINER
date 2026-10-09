@@ -137,6 +137,70 @@ function miner_monitor_sparkline(array $values): ?string {
 }
 
 /**
+ * Total de última tasa verificada de cada réplica, sin proyecciones.
+ * Usa exactamente las lecturas individuales que reciben las tarjetas;
+ * nunca suma grupos históricos, pendientes ni datos de >10 minutos.
+ * Múltiples snapshots del mismo ID se cuentan una sola vez.
+ * El agregado de TH/s no equivale a ingresos ni garantiza misma moneda.
+ */
+function miner_monitor_live_hashrate(array $groups,array $targets,int $now): array {
+    $enabled=[];
+    foreach($targets as $t) {
+        if((int)($t['enabled']??0)!==1)continue;
+        $enabled[(string)$t['organization_slug']."\0".(string)$t['project_slug']]=true;
+    }
+    $instances=[];
+    foreach($groups as $group) {
+        $org=(string)($group['organization']??'');
+        $project=(string)($group['project_name']??'');
+        if(empty($enabled[$org."\0".$project])
+           || empty($group['recent'])
+           || strtolower((string)($group['state']??''))!=='running')continue;
+        foreach($group['instances']??[] as $node) {
+            if(!is_array($node))continue;
+            $id=(string)($node['id']??'');
+            if($id==='' || empty($node['ready'])
+              || strtolower((string)($node['state']??''))!=='running')continue;
+            $resource=$org."\0".$project."\0".(string)($group['id']??$group['group_name']??'')."\0".$id;
+            if(!isset($instances[$resource]))$instances[$resource]=['org'=>$org,'metric'=>null,'ts'=>null];
+            $metric=$node['metric']??null;
+            if(!is_array($metric))continue;
+            $hash=$metric['hashrate_ths']??null;
+            $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)($metric['at']??''),new DateTimeZone('UTC'));
+            if(!is_numeric($hash) || !is_finite((float)$hash) || (float)$hash<0
+                || (float)$hash>20000 || $date===false)continue;
+            $ts=$date->getTimestamp();
+            if($ts>$now+120 || $now-$ts>600)continue;
+            if($instances[$resource]['ts']!==null && $instances[$resource]['ts']>=$ts)continue;
+            $instances[$resource]['metric']=(float)$hash;
+            $instances[$resource]['ts']=$ts;
+        }
+    }
+    $total=0.0;$ready=0;$measured=0;$latest=null;$earliest=null;$orgs=[];
+    foreach($instances as $item) {
+        $org=$item['org'];
+        if(!isset($orgs[$org]))$orgs[$org]=['ready'=>0,'measured'=>0,'ths'=>0.0];
+        $ready++;$orgs[$org]['ready']++;
+        if($item['metric']===null)continue;
+        $measured++;$total+=$item['metric'];
+        $orgs[$org]['measured']++;$orgs[$org]['ths']+=$item['metric'];
+        $latest=$latest===null? $item['ts']:max($latest,$item['ts']);
+        $earliest=$earliest===null? $item['ts']:min($earliest,$item['ts']);
+    }
+    foreach($orgs as &$v)$v['ths']=$v['measured']?round($v['ths'],2):null;
+    unset($v);
+    ksort($orgs);
+    return [
+      'ths'=>$measured?round($total,2):null,
+      'ready'=>$ready,'measured'=>$measured,'missing'=>$ready-$measured,
+      'complete'=>$ready>0 && $ready===$measured,
+      'last_at'=>$latest===null?null:gmdate('Y-m-d H:i:s',$latest),
+      'oldest_at'=>$earliest===null?null:gmdate('Y-m-d H:i:s',$earliest),
+      'organizations'=>$orgs
+    ];
+}
+
+/**
  * Vista dinámica de todas las agrupaciones registradas por las APIs de los
  * proyectos habilitados y con lecturas de Salad dentro de las últimas ocho horas.
  * Las instancias vistas en 15 min se listan individualmente, también si están
@@ -245,5 +309,6 @@ function miner_monitor_inventory(): array {
         } else $stats['historical']++;
     }
     unset($group);
-    return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats];
+    return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
+        'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now)];
 }

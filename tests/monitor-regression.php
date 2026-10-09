@@ -48,4 +48,68 @@ monitor_assert(miner_monitor_sparkline([])===null,'Empty series must not draw fa
 monitor_assert(miner_monitor_sparkline([158.1])===null,'One reading is not a trend');
 $chart=miner_monitor_sparkline([156.3,158.13,162.0]);
 monitor_assert(is_string($chart) && substr_count($chart,' ')===2 && !str_contains($chart,'NaN'),'Last three measurements must draw a 3-point line');
+
+$summaryNow=(new DateTimeImmutable('2026-10-09T21:15:00Z'))->getTimestamp();
+$summaryTargets=[
+ ['organization_slug'=>'hache','project_slug'=>'prl-tests','enabled'=>1],
+ ['organization_slug'=>'interactive','project_slug'=>'default','enabled'=>1],
+ ['organization_slug'=>'disabled','project_slug'=>'test','enabled'=>0]
+];
+$measuredNode=static function(string $id,?float $hash,string $when='2026-10-09 21:14:00'):array {
+    return [
+      'id'=>$id,'ready'=>true,'state'=>'running',
+      'metric'=>$hash===null?null:['hashrate_ths'=>$hash,'at'=>$when]
+    ];
+};
+$summaryGroups=[
+ ['id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,'instances'=>[
+    $measuredNode('h1',158.13),
+    $measuredNode('h2',169.05),
+    $measuredNode('h2',169.05),
+    $measuredNode('h3',null)]],
+ ['id'=>22,'organization'=>'interactive','project_name'=>'default','state'=>'running','recent'=>true,'instances'=>[
+    $measuredNode('i1',162.85),
+    $measuredNode('i2',52.06),
+    $measuredNode('i3',50.00,'2026-10-09 21:00:00')]],
+ ['id'=>33,'organization'=>'hache','project_name'=>'prl-tests','state'=>'stopped','recent'=>true,'instances'=>[
+    $measuredNode('stopped',300.00)]],
+ ['id'=>44,'organization'=>'interactive','project_name'=>'default','state'=>'running','recent'=>false,'instances'=>[
+    $measuredNode('old-group',400.00)]],
+ ['id'=>55,'organization'=>'disabled','project_name'=>'test','state'=>'running','recent'=>true,'instances'=>[
+    $measuredNode('paused-project',1000.00)]]
+];
+$aggregate=miner_monitor_live_hashrate($summaryGroups,$summaryTargets,$summaryNow);
+monitor_assert($aggregate['ths']===542.09,'Total TH/s must sum only unique fresh effective instance metrics');
+monitor_assert($aggregate['ready']===6 && $aggregate['measured']===4 && $aggregate['missing']===2,
+    'Coverage must report unavailable and stale instances without making them zero');
+monitor_assert(!$aggregate['complete'],'Missing telemetry must mark total as partial');
+monitor_assert($aggregate['organizations']['hache']['ths']===327.18
+    && $aggregate['organizations']['interactive']['ths']===214.91,
+    'Organization subtotals must add to global verified total');
+monitor_assert($aggregate['last_at']==='2026-10-09 21:14:00'
+    && $aggregate['oldest_at']==='2026-10-09 21:14:00',
+    'Summary must report actual effective observation window');
+$allReported=miner_monitor_live_hashrate([[
+ 'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
+ 'instances'=>[$measuredNode('h1',158.13),$measuredNode('h2',169.05)]
+]],$summaryTargets,$summaryNow);
+monitor_assert($allReported['complete'] && $allReported['measured']===2 && $allReported['ths']===327.18,
+    'Full coverage must be shown only for all identified current ready machines');
+$empty=miner_monitor_live_hashrate([[
+ 'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
+ 'instances'=>[$measuredNode('h1',null)]
+]],$summaryTargets,$summaryNow);
+monitor_assert($empty['ths']===null && $empty['measured']===0 && !$empty['complete'],
+    'No telemetry must be unknown, never 0 TH/s');
+$zero=miner_monitor_live_hashrate([[
+ 'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
+ 'instances'=>[$measuredNode('h1',0.0)]
+]],$summaryTargets,$summaryNow);
+monitor_assert($zero['ths']===0.0 && $zero['complete'],
+    'Genuine measured zero TH/s must remain distinct from missing telemetry');
+$clockFuture=miner_monitor_live_hashrate([[
+ 'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
+ 'instances'=>[$measuredNode('h1',158.13,'2026-10-09 21:18:00')]
+]],$summaryTargets,$summaryNow);
+monitor_assert($clockFuture['ths']===null,'Future timestamps must be excluded');
 echo "PASS dynamic-monitor-regression\n";
