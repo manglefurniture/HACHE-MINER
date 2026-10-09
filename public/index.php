@@ -304,6 +304,13 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
  <small><?= (int)$g['ready'] ?> listas / <?= (int)$g['desired_replicas'] ?> solicitadas</small></div>
 </div>
 <?php if(!$g['recent']): ?><p class="muted">Grupo reportado en las últimas ocho horas, pero su última consulta no es reciente. Las mediciones no se presentan como actuales.</p><?php endif; ?>
+<?php if($g['group_log_observation']!==null && $g['total_ths']===null): ?>
+<div class="monitor-group-evidence" role="note">
+ <strong>Último registro de GPU del grupo (no es el total): <?= miner_h(number_format($g['group_log_observation']['hashrate_ths'],2,'.',',')) ?> TH/s</strong>
+ <span><?= miner_h($g['group_log_observation']['gpu']) ?> · UTC <?= miner_h($g['group_log_observation']['logged_at']) ?> · <?= (int)$g['group_log_observation']['samples'] ?> registros de GPU recientes</span>
+ <small>Salad devolvió lecturas del grupo, pero no hay datos suficientes para atribuirlas a estas réplicas. No se reparten entre las instancias ni se suman al total general.</small>
+</div>
+<?php endif; ?>
 <?php if(!$g['instances']): ?><p class="muted">Sin instancias observadas en los últimos 15 minutos. Puede seguir en asignación o detenido.</p><?php endif; ?>
 <div class="monitor-node-grid">
 <?php foreach($g['instances'] as $node):

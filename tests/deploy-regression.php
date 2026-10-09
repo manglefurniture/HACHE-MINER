@@ -168,4 +168,11 @@ assert_deploy(str_contains($dashboard, "'measured'") && str_contains($dashboard,
 assert_deploy(str_contains($dashboard, "Última medición efectiva por GPU") || str_contains($dashboard,'última medición efectiva por GPU'), 'Aggregate must say it is based on effective readings');
 assert_deploy(str_contains($css, '.monitor-live-value'), 'Prominent numeric summary styling must be present');
 assert_deploy(!str_contains($poll, 'miner_auto_execute('), 'Collector must remain read-only');
+assert_deploy(str_contains($monitor,'function miner_monitor_log_metric(') && str_contains($monitor, "'watts'=>"), 'Universal monitor requires model-agnostic metric extraction and optional wattage');
+assert_deploy(str_contains($monitor,"'containerGroupInstanceId'"), 'Salad instance identity aliases must be recognized');
+assert_deploy(str_contains($monitor,"'group_log_observation'"), 'Unattributed logs must be retained only as group evidence');
+assert_deploy(str_contains($dashboard,'class="monitor-group-evidence"'), 'UI must show a separate unattributed group log reading');
+assert_deploy(str_contains($dashboard,'No se reparten entre las instancias ni se suman al total general.'), 'Unknown instance identity must never inflate confirmed TH/s');
+assert_deploy(str_contains($css,'.monitor-group-evidence{'), 'Group-only evidence needs a distinct style');
+assert_deploy(!str_contains($poll,'miner_reallocation_execute('), 'Read-only collector cannot relocate GPUs');
 echo "PASS deploy-isolation-regression\n";

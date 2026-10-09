@@ -17,6 +17,22 @@ monitor_assert(is_array($metric) && $metric['hashrate_ths']===160.25,'SRBMiner l
 monitor_assert($metric['watts']===254.0 && $metric['fan']===88 && $metric['temp_c']===69,'GPU temp/fan/watts');
 monitor_assert(miner_monitor_log_metric('share rejected [stale share]')===null,'No invented hashrate');
 monitor_assert(miner_monitor_average_15m('15 min 125.4 TH/s')===125.4,'15 minute average');
+
+$laptop=miner_monitor_log_metric('GPU 0 - NVIDIA GeForce RTX 4070 Laptop GPU: 80.37 TH/s');
+monitor_assert($laptop!==null && $laptop['hashrate_ths']===80.37
+    && str_contains($laptop['gpu'],'RTX 4070 Laptop')
+    && $laptop['watts']===null && $laptop['temp_c']===null,
+    'RTX 4070 Laptop is measured without mandatory power/fan/temp');
+$laptop2=miner_monitor_log_metric('GPU[1] GeForce RTX 4070 Laptop GPU | 78.25 TH/s 87W fan:40% temp:62C');
+monitor_assert($laptop2!==null && $laptop2['hashrate_ths']===78.25 && $laptop2['watts']===87.0,
+    'Alternate SRBMiner GPU prefix and optional wattage');
+$other=miner_monitor_log_metric('GPU2: NVIDIA RTX 5090 Laptop 165.5 TH/s 170.4W 58C');
+monitor_assert($other!==null && $other['hashrate_ths']===165.5,'GPU parser must not whitelist card models');
+monitor_assert(miner_monitor_log_metric('Pool total 150.0 TH/s')===null,'Pool aggregate cannot impersonate a GPU');
+monitor_assert(miner_monitor_log_metric('GPU 0 accepted share 80 TH/s')===null,'Share statistics must not impersonate GPU hashrate');
+monitor_assert(miner_monitor_log_metric('GPU 0 average 15 min 80 TH/s')===null,'Rolling average is not individual instant GPU hashrate');
+monitor_assert(miner_monitor_log_metric('GPU 0 RTX 4070 Laptop GPU 80 MH/s')===null,'Wrong units cannot be called TH/s');
+
 monitor_assert(miner_monitor_average_15m('GPU0 190 TH/s')===null,'instantaneous not averaged');
 
 $nodeA=['instance_id'=>'a-111','machine_id'=>'machine-a','state'=>'running','ready'=>true,'started'=>true,'update_time'=>'2026-10-09T18:40:00Z'];
@@ -33,6 +49,33 @@ monitor_assert(count($matched)===2,'Multi-node readings should map to two exact 
 monitor_assert($matched['a-111']['hashrate_ths']===158.13,'First instance assigned incorrect hashrate');
 monitor_assert($matched['b-222']['hashrate_ths']===117.13,'Second machine_id mapping failed');
 monitor_assert(miner_monitor_log_instance($metricLogs[2],[$nodeA,$nodeB])===null,'Anonymous multi-node log must NOT be assigned');
+
+monitor_assert(miner_monitor_log_instance([
+    'resource'=>['labels'=>['containerGroupInstanceId'=>'b-222']],
+    'time'=>'2026-10-09T18:44:00Z'
+],[$nodeA,$nodeB])==='b-222','CamelCase Salad instance label should be recognized');
+monitor_assert(miner_monitor_log_instance([
+    'labels'=>['instance_id'=>'a-111'],
+    'time'=>'2026-10-09T18:44:00Z'
+],[$nodeA,$nodeB])==='a-111','Top-level labels should identify individual logs');
+monitor_assert(miner_monitor_log_instance([
+    'resource'=>['labels'=>['instance_id'=>'a-111','machine_id'=>'machine-b']],
+    'time'=>'2026-10-09T18:44:00Z'
+],[$nodeA,$nodeB])===null,'Conflicting Salad resource labels must fail closed');
+$workerA=['instance_id'=>'11111111-1111-4111-8111-111111111111','machine_id'=>'machine-a',
+    'state'=>'running','ready'=>true,'started'=>true,'update_time'=>'2026-10-09T18:40:00Z'];
+$workerB=['instance_id'=>'22222222-2222-4222-8222-222222222222','machine_id'=>'machine-b',
+    'state'=>'running','ready'=>true,'started'=>true,'update_time'=>'2026-10-09T18:40:00Z'];
+monitor_assert(miner_monitor_log_instance([
+    'text_log'=>'worker id 11111111-1111-4111-8111-111111111111 GPU 0 RTX 4070 Laptop GPU 80 TH/s',
+    'time'=>'2026-10-09T18:44:00Z'
+],[$workerA,$workerB])===$workerA['instance_id'],
+    'Explicit full worker UUID in log can identify replica even with missing resource labels');
+monitor_assert(miner_monitor_log_instance([
+    'text_log'=>'worker id 11111111-1111-4111-8111-111111111111 and 22222222-2222-4222-8222-222222222222',
+    'time'=>'2026-10-09T18:44:00Z'
+],[$workerA,$workerB])===null,'Two different worker UUIDs cannot be falsely assigned to one GPU');
+
 monitor_assert(miner_monitor_log_instance(['resource'=>['labels'=>['instance_id'=>'unknown']], 'time'=>'2026-10-09T18:44:00Z'],[$nodeA,$nodeB])===null,'Unknown instance cannot be assigned');
 monitor_assert(miner_monitor_log_instance(['resource'=>['labels'=>['instance_id'=>'a-111','machine_id'=>'machine-b']]],[$nodeA,$nodeB])===null,'Conflicting identity labels must fail closed');
 monitor_assert(miner_monitor_log_instance(['time'=>'2026-10-09T18:41:00Z','text_log'=>$line],[$nodeA])==='a-111','Unique running node post-transition can receive unlabelled log');

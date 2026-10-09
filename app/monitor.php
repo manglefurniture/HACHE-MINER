@@ -27,12 +27,43 @@ function miner_monitor_status_label(string $status):string {
     };
 }
 function miner_monitor_log_metric(string $line): ?array {
-    $line=miner_scrub_log($line);
-    // SRBMiner single GPU line: device, H/s, watts, fan and temperature.
-    if (!preg_match('/#\d+\s+(?<gpu>.+?)\s+(?<hash>\d+(?:\.\d+)?)\s+TH\/s\s+(?<power>\d+(?:\.\d+)?)W\s+(?<eff>\d+(?:\.\d+)?)\s+(?<fan>\d+)%\s+(?<temp>\d+)C/i',$line,$m)) return null;
-    $hash=(float)$m['hash'];$watts=(float)$m['power'];$temp=(int)$m['temp'];$fan=(int)$m['fan'];
-    if (!is_finite($hash) || $hash<0 || $hash>20000 || $watts<0 || $watts>1500 || $temp<0 || $temp>150 || $fan<0 || $fan>100) return null;
-    return ['gpu'=>substr(trim($m['gpu']),0,120),'hashrate_ths'=>$hash,'watts'=>$watts,'temp_c'=>$temp,'fan'=>$fan];
+    $clean=miner_scrub_log($line);
+    // Parsing is GPU-model agnostic. Unlike financial thresholds, telemetry
+    // must recognize RTX 4070 Laptop, 3080 Ti, 5090 Laptop and other models.
+    // Never interpret accepted-share, pool total or 15-min mean as GPU0 speed.
+    $match=null;
+    $strict='/#\d+\s+(?<gpu>.+?)\s+(?<hash>\d+(?:\.\d+)?)\s+TH\/s\s+(?<power>\d+(?:\.\d+)?)W\s+(?<eff>\d+(?:\.\d+)?)\s+(?<fan>\d+)%\s+(?<temp>\d+)C/i';
+    if(preg_match($strict,$clean,$m)) {
+        $match=$m;
+    } else {
+        // Several SRBMiner builds and GPU drivers omit watts/fan/temperature
+        // or write "GPU [0]" / "GPU0:". Require explicit GPU device index
+        // AND TH/s on that SAME line, never a standalone pool/worker total.
+        $pattern='/\bGPU\s*(?:#?\d+|\[\d+\])\s*(?:#\d+)?\s*[:\-|]?\s*'
+               .'(?<gpu>[^\\r\\n]{3,130}?)\s*[:\-|]?\s*'
+               .'(?<hash>\d+(?:\.\d+)?)\s*TH\/s\b/i';
+        if(preg_match($pattern,$clean,$m))$match=$m;
+    }
+    if($match===null)return null;
+    $gpu=trim((string)$match['gpu']," \t:-|[]");
+    if($gpu===''||strlen($gpu)>120 || !preg_match('/[a-zA-Z]/',$gpu)
+        || preg_match('/\b(?:share|shares|accepted|rejected|pool|total|average|hashrate)\b/i',$gpu))return null;
+    $hash=(float)$match['hash'];
+    if(!is_finite($hash)||$hash<0||$hash>20000)return null;
+    // Power, temperature and fan are optional metadata, never prerequisites
+    // for recognizing an actual per-GPU hashrate.
+    $suffix=substr($clean,(int)(strpos($clean,$match[0])?:0)+strlen($match[0]),160);
+    $watts=null;$temp=null;$fan=null;
+    if(isset($match['power']) && $match['power']!=='')$watts=(float)$match['power'];
+    elseif(preg_match('/\b(\d+(?:\.\d+)?)\s*W\b/i',$suffix,$p))$watts=(float)$p[1];
+    if(isset($match['fan']) && $match['fan']!=='')$fan=(int)$match['fan'];
+    elseif(preg_match('/\b(?:fan\s*[:=]?\s*)?(\d{1,3})\s*%/i',$suffix,$mFan))$fan=(int)$mFan[1];
+    if(isset($match['temp']) && $match['temp']!=='')$temp=(int)$match['temp'];
+    elseif(preg_match('/\b(\d{1,3})\s*°?C\b/i',$suffix,$mTemp))$temp=(int)$mTemp[1];
+    if(($watts!==null && ($watts<0||$watts>1500))
+       ||($fan!==null && ($fan<0||$fan>100))
+       ||($temp!==null && ($temp<0||$temp>150)))return null;
+    return ['gpu'=>$gpu,'hashrate_ths'=>$hash,'watts'=>$watts,'temp_c'=>$temp,'fan'=>$fan];
 }
 function miner_monitor_average_15m(string $line): ?float {
     $clean=miner_scrub_log($line);
@@ -48,31 +79,55 @@ function miner_monitor_average_15m(string $line): ?float {
  * the log is after its recorded running-state transition.
  */
 function miner_monitor_log_instance(array $item,array $nodes): ?string {
-    $labels=is_array($item['resource']['labels']??null)?$item['resource']['labels']:[];
-    $idCandidates=[];
-    foreach(['instance_id','container_group_instance_id','container_instance_id'] as $key) {
-        foreach([$labels[$key]??null,$item[$key]??null] as $value) {
-            if(is_string($value) && $value!=='')$idCandidates[]=$value;
+    // Salad SDK wraps attribution in resource.labels, but deployments may
+    // expose the same labels at top level or use a camelCase field.
+    $sources=[$item];
+    foreach([$item['labels']??null,$item['resource']['labels']??null,
+             $item['resource']??null] as $container)
+        if(is_array($container))$sources[]=$container;
+    $idCandidates=[];$machineCandidates=[];
+    $idKeys=['instance_id','container_group_instance_id','container_instance_id',
+             'container_instance','instanceId','containerGroupInstanceId'];
+    $machineKeys=['machine_id','container_group_machine_id','machineId'];
+    foreach($sources as $source) {
+        foreach($idKeys as $key) {
+            $value=$source[$key]??null;
+            if(is_string($value)&&$value!=='')$idCandidates[$value]=true;
+        }
+        foreach($machineKeys as $key) {
+            $value=$source[$key]??null;
+            if(is_string($value)&&$value!=='')$machineCandidates[$value]=true;
         }
     }
-    $machineCandidates=[];
-    foreach(['machine_id','container_group_machine_id'] as $key) {
-        foreach([$labels[$key]??null,$item[$key]??null] as $value) {
-            if(is_string($value) && $value!=='')$machineCandidates[]=$value;
-        }
-    }
-    $matched=[];
+    $knownById=[];$knownByMachine=[];
     foreach($nodes as $node) {
         if(!is_array($node))continue;
         $id=(string)($node['instance_id']??$node['id']??'');
         $machine=(string)($node['machine_id']??'');
-        if ($id!=='' && (in_array($id,$idCandidates,true)
-             || ($machine!==''&&in_array($machine,$machineCandidates,true)))) {
-            $matched[$id]=true;
+        if($id!=='')$knownById[$id]=$id;
+        if($machine!==''){
+            if(!isset($knownByMachine[$machine]))$knownByMachine[$machine]=$id;
+            elseif($knownByMachine[$machine]!==$id)$knownByMachine[$machine]='';
         }
     }
+    // A full UUID explicitly printed in the miner's worker log is equally
+    // strong evidence as a resource label; truncated IDs are NOT sufficient.
+    $raw=(string)($item['text_log']??$item['message']??'');
+    foreach($knownById as $id)if(preg_match('/(?<![a-z0-9_-])'.preg_quote($id,'/').'(?![a-z0-9_-])/i',$raw))
+        $idCandidates[$id]=true;
+    foreach($knownByMachine as $machine=>$id)
+        if($id!=='' && preg_match('/(?<![a-z0-9_-])'.preg_quote($machine,'/').'(?![a-z0-9_-])/i',$raw))
+            $machineCandidates[$machine]=true;
+    $matched=[];
+    foreach(array_keys($idCandidates) as $id) {
+        if(!isset($knownById[$id]))return null;
+        $matched[$knownById[$id]]=true;
+    }
+    foreach(array_keys($machineCandidates) as $machine) {
+        if(empty($knownByMachine[$machine]))return null;
+        $matched[$knownByMachine[$machine]]=true;
+    }
     if(count($matched)===1)return (string)array_key_first($matched);
-    // Conflicting labels must fail closed, even if the group has one instance.
     if($idCandidates!==[] || $machineCandidates!==[])return null;
     if(count($nodes)!==1 || !is_array($nodes[0]))return null;
     $node=$nodes[0];
@@ -80,7 +135,7 @@ function miner_monitor_log_instance(array $item,array $nodes): ?string {
     if($id==='' || !miner_instance_ready($node))return null;
     $changed=strtotime((string)($node['update_time']??''));
     $logged=strtotime((string)($item['time']??$item['timestamp']??''));
-    if($changed===false || $logged===false || $logged < $changed-30) return null;
+    if($changed===false || $logged===false || $logged < $changed-30)return null;
     return $id;
 }
 /** Return newest provably attributable GPU metric for each instance. */
@@ -233,6 +288,26 @@ function miner_monitor_inventory(): array {
          ORDER BY logged_at DESC LIMIT 1500")->fetchAll(PDO::FETCH_ASSOC);
     $warningCount=[];
     foreach($logs as $log)$warningCount[(int)$log['group_id']]=($warningCount[(int)$log['group_id']]??0)+1;
+    // This is group-only evidence. The same line may belong to either GPU;
+    // do NOT divide it across replicas or count it in total TH/s.
+    $unassignedLogRows=$db->query("SELECT group_id,logged_at,summary FROM log_events
+        WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE
+          AND summary LIKE '%TH/s%'
+        ORDER BY logged_at DESC,event_hash DESC LIMIT 1400")->fetchAll(PDO::FETCH_ASSOC);
+    $groupLogMetrics=[];
+    foreach($unassignedLogRows as $row){
+        $groupId=(int)$row['group_id'];
+        $metric=miner_monitor_log_metric((string)$row['summary']);
+        if($metric===null)continue;
+        if(!isset($groupLogMetrics[$groupId])){
+            $groupLogMetrics[$groupId]=[
+                'gpu'=>$metric['gpu'],'hashrate_ths'=>$metric['hashrate_ths'],
+                'logged_at'=>$row['logged_at'],'samples'=>0
+            ];
+        }
+        $groupLogMetrics[$groupId]['samples']++;
+    }
+
     // Recent explicit pearlhash evidence prevents treating QTC / Quantus hash as PRL.
     // Unverified names remain neutral; actual measured algorithm takes priority.
     $algoGroups=$db->query("SELECT DISTINCT group_id FROM log_events
@@ -268,6 +343,7 @@ function miner_monitor_inventory(): array {
         $group['observed']=$observed;
         $group['ready']=$ready;
         $group['warnings']=$recent?($warningCount[$id]??0):0;
+        $group['group_log_observation']=$recent?($groupLogMetrics[$id]??null):null;
         $group['pearlhash_verified']=$recent && isset($pearlhashGroupIds[$id]);
         $total=0.0;$measured=0;$signals=[];
         foreach($group['instances'] as &$node){
