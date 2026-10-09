@@ -46,32 +46,40 @@ function miner_reallocation_target(int $groupId,string $instanceId): array {
  */
 function miner_reallocation_cooldown_seconds(array $group,string $instanceId, ?int $now=null): int {
     $fingerprint=miner_reallocation_fingerprint($group,$instanceId);
-    $st=miner_db()->prepare("SELECT MAX(occurred_at) FROM audit_events
-      WHERE action_name='manual_reallocate_intent' AND detail=?
-      AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE");
+    $st=miner_db()->prepare("SELECT action_name,MAX(occurred_at) AS at FROM audit_events
+      WHERE detail=? AND (
+        (action_name='manual_reallocate_intent' AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE)
+        OR (action_name='auto_reallocate_intent' AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 60 MINUTE)
+      ) GROUP BY action_name");
     $st->execute([$fingerprint]);
-    $date=$st->fetchColumn();
-    if (!is_string($date) || $date==='') return 0;
-    $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$date,new DateTimeZone('UTC'));
-    if (!$parsed) return 900;
-    $elapsed=($now??time())-$parsed->getTimestamp();
-    return max(0,900-max(0,$elapsed));
+    $cooldown=0;
+    foreach($st->fetchAll(PDO::FETCH_ASSOC) as $entry){
+        $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$entry['at'],new DateTimeZone('UTC'));
+        $limit=$entry['action_name']==='auto_reallocate_intent'?3600:900;
+        if(!$parsed)return $limit;
+        $elapsed=($now??time())-$parsed->getTimestamp();
+        $cooldown=max($cooldown,max(0,$limit-max(0,$elapsed)));
+    }
+    return $cooldown;
 }
 /** One read for the entire monitor instead of an SQL query per displayed GPU. */
 function miner_reallocation_cooldown_index(?int $now=null): array {
     $db=miner_db();
-    $rows=$db->query("SELECT detail,MAX(occurred_at) AS at
+    $rows=$db->query("SELECT detail,action_name,MAX(occurred_at) AS at
         FROM audit_events
-        WHERE action_name='manual_reallocate_intent'
-          AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE
-        GROUP BY detail LIMIT 1000")->fetchAll(PDO::FETCH_ASSOC);
+        WHERE (action_name='manual_reallocate_intent'
+          AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE)
+           OR (action_name='auto_reallocate_intent'
+          AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 60 MINUTE)
+        GROUP BY detail,action_name LIMIT 1000")->fetchAll(PDO::FETCH_ASSOC);
     $out=[];
     foreach($rows as $item) {
         if (!preg_match('/^[a-f0-9]{64}$/D',(string)$item['detail']))continue;
         $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$item['at'],new DateTimeZone('UTC'));
         if (!$date)continue;
-        $seconds=max(0,900-max(0,($now??time())-$date->getTimestamp()));
-        if($seconds>0)$out[(string)$item['detail']]=$seconds;
+        $duration=$item['action_name']==='auto_reallocate_intent'?3600:900;
+        $seconds=max(0,$duration-max(0,($now??time())-$date->getTimestamp()));
+        if($seconds>0)$out[(string)$item['detail']]=max($seconds,$out[(string)$item['detail']]??0);
     }
     return $out;
 }
@@ -124,8 +132,9 @@ function miner_reallocation_execute(int $adminId,int $groupId,string $instanceId
     if ((int)$st->fetchColumn()!==1) throw new RuntimeException('Reallocation already in progress');
     try {
         $st=$db->prepare("SELECT COUNT(*) FROM audit_events
-            WHERE action_name='manual_reallocate_intent' AND detail=?
-            AND occurred_at>UTC_TIMESTAMP()-INTERVAL 15 MINUTE");
+            WHERE detail=? AND (
+            (action_name='manual_reallocate_intent' AND occurred_at>UTC_TIMESTAMP()-INTERVAL 15 MINUTE)
+            OR (action_name='auto_reallocate_intent' AND occurred_at>UTC_TIMESTAMP()-INTERVAL 60 MINUTE))");
         $st->execute([$fingerprint]);
         if ((int)$st->fetchColumn()>0) throw new DomainException('Recent request, cooldown active');
         // Re-check the stored instance after entering the per-instance lock.

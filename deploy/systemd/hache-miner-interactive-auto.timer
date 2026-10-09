@@ -1,0 +1,11 @@
+[Unit]
+Description=Check INTERACTIVE verified PRL per-instance performance every five minutes
+
+[Timer]
+OnCalendar=*:4/5
+Persistent=false
+AccuracySec=30s
+Unit=hache-miner-interactive-auto.service
+
+[Install]
+WantedBy=timers.target

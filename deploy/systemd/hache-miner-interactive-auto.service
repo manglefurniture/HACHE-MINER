@@ -1,0 +1,25 @@
+[Unit]
+Description=HACHE-MINER INTERACTIVE PRL per-instance auto-reallocation
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hache-miner
+Group=hache-miner
+WorkingDirectory=/srv/hache-miner/current
+ExecStart=/usr/bin/php -d auto_prepend_file=/etc/hache-miner/load-env.php /srv/hache-miner/current/bin/interactive-auto.php
+Environment=MINER_INTERACTIVE_AUTO_ENABLED=1
+TimeoutStartSec=120
+MemoryMax=96M
+CPUQuota=20%
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/var/lib/hache-miner
+UMask=0077
