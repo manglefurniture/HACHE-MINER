@@ -5,6 +5,7 @@ require_once dirname(__DIR__).'/app/diagnostics.php';
 require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/finances.php';
+require_once dirname(__DIR__).'/app/reallocate.php';
 miner_security_headers();
 try {
     miner_session();
@@ -50,6 +51,30 @@ try {
                     if(!$id) throw new InvalidArgumentException('Target invalid');
                     miner_salad_set_enabled((int)$id,$enabled);
                     miner_audit($uid,'salad_target_enabled',($enabled?'on':'off').':'.$id);
+                } elseif ($action==='manual_reallocate') {
+                    if ($page!=='reallocate') throw new DomainException('Wrong confirmation endpoint');
+                    $challenge=$_SESSION['reallocation_challenge']??null;
+                    $postedToken=(string)($_POST['challenge']??'');
+                    $postedId=filter_var($_GET['group_id']??null,FILTER_VALIDATE_INT);
+                    $postedInstance=(string)($_GET['instance_id']??'');
+                    if (!is_array($challenge) || !is_string($challenge['token']??null)
+                        || $postedToken==='' || !hash_equals($challenge['token'],$postedToken)
+                        || (int)($challenge['admin_id']??0)!==$uid
+                        || (int)($challenge['group_id']??0)!==$postedId
+                        || ($challenge['instance_id']??'')!==$postedInstance
+                        || (int)($challenge['expires']??0)<time()) {
+                        throw new DomainException('Expired or invalid confirmation');
+                    }
+                    if (!miner_reallocation_confirmed((string)($_POST['confirmation']??''))) {
+                        throw new DomainException('Second confirmation not accepted');
+                    }
+                    if (!miner_reallocation_password($uid,(string)($_POST['password']??''),(string)($_SERVER['REMOTE_ADDR']??''))) {
+                        throw new DomainException('Reauthentication failed or throttled');
+                    }
+                    // Consume challenge before making any non-idempotent request.
+                    unset($_SESSION['reallocation_challenge']);
+                    miner_reallocation_execute($uid,(int)$postedId,$postedInstance);
+                    header('Location: /?page=monitor&reallocated=1',true,303);exit;
                 } elseif ($action==='wallet') {
                     $org=(string)($_POST['organization']??'');$address=trim((string)($_POST['address']??''));
                     $label=trim((string)($_POST['label']??''));
@@ -73,14 +98,16 @@ try {
                 } else throw new InvalidArgumentException('Acción desconocida.');
                 header('Location: /?page='.rawurlencode($page).'&saved=1',true,303);exit;
             } catch (Throwable $e) {
-                $error='No se pudo guardar. Verifica campos, permisos o duplicados.';
+                $error=$action==='manual_reallocate'
+                    ? 'No se pudo solicitar la reasignación. Verifica la confirmación, la contraseña, el estado actual y el límite de 15 minutos. No vuelvas a pulsar hasta comprobar el estado en Salad.'
+                    : 'No se pudo guardar. Verifica campos, permisos o duplicados.';
                 error_log('[hache-miner] admin-write-error '.get_class($e));
             }
         }
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$reallocationTarget=null;$reallocationChallenge='';
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -92,6 +119,26 @@ try {
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
         if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
         if ($page==='monitor') $monitorData=miner_monitor_inventory();
+        if ($page==='reallocate') {
+            try {
+                $getGroup=filter_var($_GET['group_id']??null,FILTER_VALIDATE_INT);
+                $getInstance=(string)($_GET['instance_id']??'');
+                $reallocationTarget=miner_reallocation_target((int)$getGroup,$getInstance);
+                if ($_SERVER['REQUEST_METHOD']==='GET') {
+                    $reallocationChallenge=bin2hex(random_bytes(24));
+                    $_SESSION['reallocation_challenge']=[
+                        'token'=>$reallocationChallenge,'admin_id'=>$uid,
+                        'group_id'=>(int)$getGroup,'instance_id'=>$getInstance,
+                        'expires'=>time()+180
+                    ];
+                } else {
+                    $reallocationChallenge=(string)($_SESSION['reallocation_challenge']['token']??'');
+                }
+            } catch (Throwable $e) {
+                $error='Esta instancia ya no reúne las condiciones para solicitar una reasignación. Vuelve al monitor.';
+                $reallocationTarget=null;
+            }
+        }
         if ($page==='finance') $financeData=miner_finance_overview();
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='settings') {
@@ -133,8 +180,29 @@ function orgselect(): void {
 <p class="muted">Registro independiente para HACHE e INTERACTIVE. Los datos no observados se muestran como desconocidos, nunca como cero.</p>
 <nav><a href="/">Resumen</a><a href="/?page=monitor">Monitor GPU</a><a href="/?page=finance">Finanzas</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
 <?php if(isset($_GET['saved'])): ?><p class="success">Configuración guardada.</p><?php endif; ?>
+<?php if($page==='monitor' && isset($_GET['reallocated'])): ?><p class="success">Salad aceptó la solicitud de reasignación (HTTP 202). La asignación al nuevo nodo todavía está pendiente de confirmarse.</p><?php endif; ?>
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
-<?php if($page==='monitor'): ?>
+<?php if($page==='reallocate'): ?>
+<section class="card"><h2>Segunda validación · Reasignar instancia</h2>
+<?php if($reallocationTarget): ?>
+<p>Organización: <strong><?= miner_h(strtoupper((string)$reallocationTarget['organization'])) ?></strong> ·
+Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></strong></p>
+<p>Grupo: <strong><?= miner_h((string)$reallocationTarget['group_name']) ?></strong></p>
+<p>Instancia exacta: <code><?= miner_h((string)$reallocationTarget['instance_id']) ?></code></p>
+<p class="muted">¿Confirmas que quieres retirar este nodo y solicitar a Salad otra asignación? La minería puede interrumpirse y la disponibilidad del nodo nuevo no está garantizada. No modifica la GPU, prioridad ni el número de réplicas.</p>
+<form method="post" action="/?page=reallocate&amp;group_id=<?= (int)$reallocationTarget['id'] ?>&amp;instance_id=<?= rawurlencode((string)$reallocationTarget['instance_id']) ?>">
+<input type="hidden" name="csrf" value="<?= $csrf ?>">
+<input type="hidden" name="challenge" value="<?= miner_h($reallocationChallenge) ?>">
+<label>Para responder a la confirmación, escribe REASIGNAR
+<input name="confirmation" autocomplete="off" required maxlength="9" pattern="REASIGNAR" placeholder="REASIGNAR"></label>
+<label>Vuelve a introducir tu contraseña de administrador
+<input type="password" name="password" autocomplete="current-password" required maxlength="1024"></label>
+<p class="muted">Confirmación válida durante tres minutos. Solo se permite una solicitud por instancia en 15 minutos. La API se vuelve a consultar antes de ejecutarla.</p>
+<button name="action" value="manual_reallocate">Sí, solicitar reasignación</button>
+<a class="ghost" href="/?page=monitor">Cancelar</a>
+</form>
+<?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
+<?php elseif($page==='monitor'): ?>
 <section class="card"><h2>Monitor dinámico de SaladCloud</h2>
 <p class="muted">Incluye todos los grupos conocidos desde que empezó la recolección, por organización y proyecto registrados. La API se consulta cada cinco minutos en segundo plano. Una réplica lista no demuestra shares aceptados. El monitor original de alertas y reasignación continúa separado.</p>
 <div class="kpis">
@@ -172,7 +240,10 @@ function orgselect(): void {
 <?php foreach($g['instances'] as $node): ?><tr><td data-label="Instancia"><code><?= miner_h($node['id']) ?></code></td>
 <td data-label="Estado"><?= miner_h($node['state']) ?></td>
 <td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
-<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td></tr><?php endforeach; ?>
+<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td>
+<td data-label="Acción"><?php if($g['recent'] && $node['ready'] && $node['state']==='running'): ?>
+<a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Reasignar instancia</a>
+<?php else: ?><span class="muted">No disponible</span><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div><?php endif; ?>
 </details>
 <?php endforeach;endforeach; ?>
