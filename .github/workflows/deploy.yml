@@ -26,7 +26,8 @@ jobs:
         run: |
           set -euo pipefail
           find app public bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
-          php tests/core-regression.php\n          php tests/deploy-regression.php
+          php tests/core-regression.php
+          php tests/deploy-regression.php
       - name: Verify deploy settings
         shell: bash
         env:
