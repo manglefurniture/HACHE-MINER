@@ -76,7 +76,6 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $orgs=miner_salad_targets(false);
     $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
