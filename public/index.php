@@ -77,10 +77,11 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
-        $groups=miner_db()->query('SELECT organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
+        $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
+        if ($page==='dashboard') $replicaStates=miner_recent_group_statuses();
         $wallets=miner_db()->query('SELECT organization,coin,label,address FROM wallets ORDER BY organization,label')->fetchAll();
         $runs=miner_db()->query('SELECT source_name,observed_at,status,detail FROM sync_runs ORDER BY id DESC LIMIT 18')->fetchAll();
         $secrets=miner_db()->query('SELECT secret_name,updated_at FROM secret_store ORDER BY secret_name')->fetchAll();
@@ -134,20 +135,23 @@ function orgselect(): void {
 <div><strong><?= (int)$collectorDiag['summary']['fresh'] ?></strong><small>Proyectos con lectura reciente</small></div>
 <div><strong><?= (int)$collectorDiag['summary']['stale'] ?></strong><small>Proyectos atrasados</small></div>
 <div><strong><?= (int)$collectorDiag['summary']['groups_seen'] ?></strong><small>Grupos observados en 15 min</small></div>
-<div><strong><?= (int)$collectorDiag['summary']['samples'] ?></strong><small>Muestras de réplicas en 15 min</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['ready'] ?> / <?= (int)$collectorDiag['summary']['instances'] ?></strong><small>Listas / observadas (10 min)</small></div>
 </div>
-<div class="tablewrap"><table><thead><tr><th>Organización / proyecto</th><th>Estado</th><th>Último ciclo UTC</th><th>Grupos 15 min</th><th>Réplicas solicitadas</th><th>Muestras 15 min</th></tr></thead><tbody>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización / proyecto</th><th>Estado</th><th>Último ciclo UTC</th><th>Grupos 15 min</th><th>Réplicas solicitadas</th><th>Instancias observadas</th><th>Listas</th></tr></thead><tbody>
 <?php foreach($collectorDiag['targets'] as $t): ?>
-<tr><td><strong><?= miner_h($t['label']) ?></strong><small><?= miner_h($t['organization'].' / '.$t['project']) ?></small></td>
-<td><?= miner_h($t['status']==='pausado'?'Pausado':miner_collector_health_label($t['status'])) ?></td>
-<td><?= miner_h((string)($t['observed_at']??'Sin datos')) ?><small><?= miner_h((string)($t['detail']??'')) ?></small></td>
-<td><?= (int)$t['groups_seen'] ?></td><td><?= (int)$t['desired_replicas'] ?></td><td><?= (int)$t['samples'] ?></td></tr>
+<tr><td data-label="Organización"><strong><?= miner_h($t['label']) ?></strong><small><?= miner_h($t['organization'].' / '.$t['project']) ?></small></td>
+<td data-label="Estado"><?= miner_h($t['status']==='pausado'?'Pausado':miner_collector_health_label($t['status'])) ?></td>
+<td data-label="Último ciclo UTC"><?= miner_h((string)($t['observed_at']??'Sin datos')) ?><small><?= miner_h((string)($t['detail']??'')) ?></small></td>
+<td data-label="Grupos 15 min"><?= (int)$t['groups_seen'] ?></td>
+<td data-label="Solicitadas"><?= (int)$t['desired_replicas'] ?></td>
+<td data-label="Observadas 10 min"><?= (int)$t['instances'] ?></td>
+<td data-label="Listas 10 min"><?= (int)$t['ready'] ?></td></tr>
 <?php endforeach; ?></tbody></table></div>
-<p class="muted">Réplicas solicitadas no equivale a réplicas activas. Muestras son observaciones históricas, no máquinas únicas. No se calcula rentabilidad sin tarifas verificadas y producción PRL observada.</p></section>
+<p class="muted">«Observadas» son instancias únicas vistas en 10 minutos; «listas» cumplen running + ready + started. Ninguno de estos estados acredita shares aceptados ni hashrate de PRL. Réplicas solicitadas y muestras históricas no son máquinas activas.</p></section>
 <section class="card"><h2>Advertencias recientes (24 h)</h2>
 <?php if(!$collectorDiag['warnings']): ?><p class="muted">Sin advertencias de logs registradas durante las últimas 24 horas. No implica ausencia de fallos fuera de la cobertura.</p><?php else: ?>
-<div class="tablewrap"><table><thead><tr><th>UTC</th><th>Organización</th><th>Grupo</th><th>Mensaje depurado</th></tr></thead><tbody>
-<?php foreach($collectorDiag['warnings'] as $w): ?><tr><td><?= miner_h($w['logged_at']) ?></td><td><?= miner_h($w['organization']) ?></td><td><?= miner_h($w['group_name']) ?></td><td><?= miner_h($w['summary']) ?></td></tr><?php endforeach; ?>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>UTC</th><th>Organización</th><th>Grupo</th><th>Mensaje depurado</th></tr></thead><tbody>
+<?php foreach($collectorDiag['warnings'] as $w): ?><tr><td data-label="UTC"><?= miner_h($w['logged_at']) ?></td><td data-label="Organización"><?= miner_h(strtoupper($w['organization'])) ?></td><td data-label="Grupo"><?= miner_h($w['group_name']) ?></td><td data-label="Advertencia"><?= miner_h($w['summary']) ?></td></tr><?php endforeach; ?>
 </tbody></table></div><?php endif; ?></section>
 <?php elseif($page==='settings'): ?>
 <div class="grid">
@@ -188,13 +192,19 @@ function orgselect(): void {
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
-<div class="grid"><section class="card"><h2>Últimos ciclos</h2><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
-<?php foreach($runs as $r): ?><tr><td><?= miner_h($r['source_name']) ?></td><td><?= miner_h($r['observed_at']) ?></td><td><?= miner_h($r['status']) ?></td><td><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
+<div class="grid"><section class="card"><h2>Últimos ciclos</h2><div class="tablewrap mobile-stack"><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
+<?php foreach($runs as $r): ?><tr><td data-label="Fuente"><?= miner_h($r['source_name']) ?></td><td data-label="UTC"><?= miner_h($r['observed_at']) ?></td><td data-label="Estado"><?= miner_h($r['status']) ?></td><td data-label="Detalle"><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
 <section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
 <?php foreach($charges as $c):?><tr><td><?= miner_h($c['organization']) ?></td><td><?= miner_h($c['period_start'].' → '.$c['period_end']) ?></td><td><?= miner_h($c['amount_usd']) ?></td></tr><?php endforeach;?></table></section></div>
 <?php else: ?>
 <div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">PRODUCCIÓN PRL</div><strong>Sin datos aún</strong><small>Pendiente / confirmado separados</small></div></div>
-<section class="card"><h2>Grupos de SaladCloud</h2><div class="tablewrap"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado</th><th>Prioridad</th><th>Réplicas</th><th>Última lectura UTC</th></tr></thead><tbody>
-<?php foreach($groups as $g):?><tr><td><?= miner_h(strtoupper($g['organization'])) ?></td><td><?= miner_h($g['group_name']) ?></td><td><?= miner_h($g['state']) ?></td><td><?= miner_h((string)$g['priority']) ?></td><td><?= (int)$g['desired_replicas'] ?></td><td><?= miner_h($g['last_seen_at']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$groups):?><p class="muted">Aún no hay historial. Configura las claves de Salad y activa el recolector.</p><?php endif; ?></section>
+<section class="card"><h2>Grupos de SaladCloud</h2><p class="muted">Instancias únicas observadas en los últimos 10 minutos. «Listas» indica contenedores running, ready y started; no confirma minería PRL.</p><div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado grupo</th><th>Prioridad</th><th>Solicitadas</th><th>Observadas</th><th>Listas</th><th>Última lectura UTC</th></tr></thead><tbody>
+<?php foreach($groups as $g): $snap=$replicaStates[(int)$g['id']]??null; ?><tr>
+<td data-label="Organización"><?= miner_h(strtoupper($g['organization'])) ?></td><td data-label="Grupo"><?= miner_h($g['group_name']) ?></td>
+<td data-label="Estado grupo"><?= miner_h($g['state']) ?></td><td data-label="Prioridad"><?= miner_h((string)$g['priority']) ?></td>
+<td data-label="Solicitadas"><?= (int)$g['desired_replicas'] ?></td>
+<td data-label="Observadas"><?= $snap!==null?(int)$snap['observed']:'Sin muestras' ?></td>
+<td data-label="Listas"><?= $snap!==null?(int)$snap['ready']:'Sin muestras' ?></td>
+<td data-label="Última lectura UTC"><?= miner_h($g['last_seen_at']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$groups):?><p class="muted">Aún no hay historial. Configura las claves de Salad y activa el recolector.</p><?php endif; ?></section>
 <?php endif; ?>
 <?php endif; ?></main><footer>HACHE INTERACTIVE · MINER MONITORING · Las estimaciones no equivalen a cargos facturados.</footer></body></html>
