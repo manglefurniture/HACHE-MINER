@@ -1,0 +1,41 @@
+# Requires DNS and an existing Let's Encrypt certificate. Install by an
+# authorized administrator, never by overwriting another project's vhost.
+server {
+    listen 80;
+    server_name miner.hacheinteractive.com;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/hache-miner-acme;
+        default_type text/plain;
+    }
+    location / { return 301 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl http2;
+    server_name miner.hacheinteractive.com;
+    ssl_certificate /etc/letsencrypt/live/miner.hacheinteractive.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/miner.hacheinteractive.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    root /srv/hache-miner/current/public;
+    index index.php;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Frame-Options DENY always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    location / { try_files $uri /index.php?$query_string; }
+    location = /index.php {
+        internal;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /srv/hache-miner/current/public/index.php;
+        fastcgi_param HTTPS on;
+        fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
+    }
+    location = /healthz {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /srv/hache-miner/current/public/health.php;
+        fastcgi_param HTTPS on;
+        fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
+        access_log off;
+    }
+    location ~ \.php$ { return 404; }
+    location ~ /\. { return 404; }
+}
