@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 const MINER_TIMEZONE = 'America/Cancun';
-const MINER_ORGANIZATIONS = ['hache' => 'prl-tests', 'interactive' => 'default'];
+// Organizations/projects are loaded from salad_targets, not hardcoded here.
 
 function miner_db(): PDO {
     static $db = null;
@@ -221,4 +221,38 @@ function miner_revoke_all_devices(int $adminId): void {
     $st->execute([$adminId]);
     miner_audit($adminId,'trusted_devices_revoked');
     miner_clear_remember_cookie();
+}
+
+
+function miner_valid_salad_slug(string $slug): bool {
+    return preg_match('/^[a-z0-9][a-z0-9-]{0,63}$/D', $slug)===1;
+}
+function miner_salad_targets(bool $enabledOnly=true): array {
+    $sql='SELECT id,organization_slug,project_slug,label,enabled FROM salad_targets';
+    if ($enabledOnly) $sql.=' WHERE enabled=1';
+    $sql.=' ORDER BY organization_slug,project_slug';
+    return miner_db()->query($sql)->fetchAll();
+}
+function miner_salad_add_target(string $org,string $project,string $label): void {
+    $org=strtolower(trim($org));$project=strtolower(trim($project));$label=trim($label);
+    if (!miner_valid_salad_slug($org) || !miner_valid_salad_slug($project) || $label==='' || mb_strlen($label)>100)
+        throw new InvalidArgumentException('Organización o proyecto inválido.');
+    $st=miner_db()->prepare('INSERT INTO salad_targets(organization_slug,project_slug,label,enabled) VALUES (?,?,?,1) ON DUPLICATE KEY UPDATE label=VALUES(label),enabled=1');
+    $st->execute([$org,$project,$label]);
+}
+function miner_salad_set_enabled(int $id,bool $enabled): void {
+    if ($id<1) throw new InvalidArgumentException('Invalid target');
+    $st=miner_db()->prepare('UPDATE salad_targets SET enabled=? WHERE id=?');
+    $st->execute([(int)$enabled,$id]);
+    if ($st->rowCount()===0) {
+       $check=miner_db()->prepare('SELECT 1 FROM salad_targets WHERE id=?');$check->execute([$id]);
+       if (!$check->fetchColumn()) throw new InvalidArgumentException('Target not found');
+    }
+}
+function miner_shared_salad_api_key(): ?string {
+    $shared=miner_get_secret('salad:api-key');
+    if ($shared!==null) return $shared;
+    // Read-only compatibility for installations that previously stored an
+    // organization-specific key. New keys are saved only in the shared slot.
+    return miner_get_secret('salad:hache:api-key') ?? miner_get_secret('salad:interactive:api-key');
 }
