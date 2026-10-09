@@ -42,3 +42,12 @@ No otorgar privilegios adicionales ni modificar archivos de configuración del V
 
 ## Criterios para lanzamiento
 CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secretos públicos, vista móvil, protección de webroot, acceso a API validado, dos ciclos de recolección auditados, backups restaurables y rollback documentado.
+
+## Actualización 2026-10: credencial compartida y dispositivos
+
+- `database/002_trusted_devices.sql`: sesiones persistentes con selector/token validador rotatorio; cookie HttpOnly/Secure/SameSite, 30 días, revocable por administrador.
+- `database/003_salad_targets.sql`: lista dinámica de organizaciones y proyectos. Semillas HACHE / prl-tests e INTERACTIVE / default. Nuevas organizaciones se agregan o pausan desde el panel, sin tocar GitHub.
+- La clave API Salad se almacena una sola vez con nombre `salad:api-key`. Las credenciales antiguas de HACHE e INTERACTIVE solo sirven de compatibilidad de lectura temporal; no volver a configurarlas por separado.
+- Antes de activar una versión con estas tablas, ejecutar como root el script versionado `deploy/apply-private-migrations.sh` desde su release. Crea un backup de la DB en directorio root 0700, aplica migraciones aditivas y verifica filas iniciales.
+- El backup SQL local **no sustituye** un respaldo externo cifrado y recuperable de `master.key`. No guardar API keys hasta preparar el respaldo externo.
+- La integración de Salad **solo lee** grupos y logs; añadir organizaciones no incrementa cuotas, no crea recursos, no elude las políticas del proveedor.
