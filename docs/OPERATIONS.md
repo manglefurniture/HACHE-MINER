@@ -135,3 +135,11 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
   `bash /srv/hache-miner/current/deploy/enable-interactive-auto.sh`.
 - Un operador puede detener este componente nuevo sin afectar al automático de HACHE con `systemctl disable --now hache-miner-interactive-auto.timer`. El monitor visual y el botón manual siguen funcionando; para repetir instalación después de deshabilitar, solo `systemctl enable --now hache-miner-interactive-auto.timer` si los archivos de unidad y las pruebas ya están validados.
 - El semáforo visual se habilita para cualquier grupo con logs recientes comprobados de `[pearlhash]` y RTX 4070 Ti SUPER Low, aunque el nombre del grupo empiece por `quantus-`. Sin prueba del algoritmo permanece en estado neutro: nunca deducir criptomoneda a partir del nombre solamente.
+
+
+## Total observado TH/s en cabecera de Monitor GPU
+- La primera cifra del monitor es la **suma de las últimas medidas individuales verificadas** para instancias `running` y `ready` de grupos observados recientemente y proyectos habilitados. Solo se aceptan muestras de hasta **10 minutos** de antigüedad (y no más de 2 minutos en el futuro para tolerancia de reloj).
+- Cada ID de instancia se suma **una sola vez** en su grupo, incluso si hay muestras duplicadas. Se excluyen grupos borrados/históricos, detenidos, instancias sin asignar y medidas antiguas. Se toma la observación más reciente comprobable y se muestra el intervalo UTC entre la más antigua y más reciente incluidas.
+- Debajo del total se muestra `X de Y` instancias listas con tasa confirmada y cuántas carecen de datos. El indicador **parcial** evita presentar una medición incompleta como si fuese toda la potencia. Si no hay ninguna tasa verificada, se muestra `Sin lecturas recientes`, **no 0 TH/s**; un cero efectivamente medido sí se muestra como `0.00 TH/s`.
+- También se exhibe el subtotal de HACHE e INTERACTIVE. Unidades **TH/s** de las lecturas reales de los logs; tasas de algoritmos diferentes no se pueden comparar en rentabilidad. No es promedio temporal, media del grupo ni ingresos confirmados; es una suma observacional de mediciones hechas en momentos distintos dentro de una ventana máxima de diez minutos.
+- Este cálculo no modifica ni invoca el sistema automático de reasignación, las tarjetas individuales ni las credenciales de Salad.
