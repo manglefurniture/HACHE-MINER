@@ -104,3 +104,13 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - El informe de entradas menos salidas incluye exclusivamente **movimientos con comprobantes que el administrador ya registró**. No es saldo bancario ni rentabilidad completa, y no debe inferirse cero si faltan comprobantes o solo hay transferencias PRL.
 - Para activar tras desplegar en `main`, conectar como root por un canal seguro y ejecutar: `bash /srv/hache-miner/current/deploy/apply-accounting-migration.sh`. El comando no imprime claves. Confirmar salida `HACHE_MINER_ACCOUNTING_SCHEMA_OK` y no compartir su respaldo SQL.
 - No automatizar imports desde capturas sin validar sus referencias o transacciones. Cobros en SafeTrade, pagos USDT/USDC y cargos Salad requieren evidencia verificable del movimiento; la API pública de Salad utilizada por el monitor no proporciona costos reales de facturación por transacción.
+
+
+## Importación de ocho recargas Salad verificadas por recibos Stripe — octubre 2026
+
+- Fuentes: ocho correos de recibo de Salad/Stripe y avisos de recarga correspondientes, fechados 2026-10-04 a 2026-10-08 en `fernandez83@gmail.com`. Los comprobantes personales **nunca se publican en GitHub**.
+- HACHE: 7 recargas, total US$40. INTERACTIVE: 1 recarga, US$5. Total US$45 de **crédito prepago comprado**. No es consumo facturado ni beneficio negativo: el importe gastado exige dato de saldo/uso de Salad.
+- Importador genérico: `bin/import-salad-receipts.php`, ejecutado solo como root mediante `deploy/import-salad-receipts.sh`. La fuente CSV queda en `/srv/hache-miner/private-imports/salad-receipts-2026-10.csv` con permisos directorio 0700 y fichero 0600, ambos bajo control local. El comando requiere SHA-256 explícito del CSV, verifica ocho filas exactas y total por organización, usa la misma validación del panel y evita duplicar recibos. Si una referencia ya existe pero su importe/org no coincide, revierte toda la operación.
+- Antes de modificar el libro, el wrapper crea un SQL backup root-only de `hache_miner`. No toca otras bases ni conecta a Salad. El primer uso requiere ejecución explícita como root del propietario: `bash /srv/hache-miner/current/deploy/import-salad-receipts.sh 96f3c48f227f4bfa85383b7f42e1136fb922e572c626ba3f68e70b1628ea8ba3`.
+- La referencia original de cada recibo Stripe se convierte en `stripe:salad:<número>` para garantizar unicidad; fechas de las notificaciones de recarga UTC. Se registran como `salad_topup`, no como cargos de consumo, en el libro de caja.
+- Los cargos reales consumidos no están documentados en estos recibos (indican `Cloud Usage Credit`). Hasta recuperar el saldo de crédito o desglose de consumo oficial de Salad, el gasto devengado es **desconocido**, no US$45.
