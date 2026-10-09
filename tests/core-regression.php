@@ -11,5 +11,9 @@ $sanitized=miner_scrub_log('connect wallet prl1pcc2lcq2jnkzhfk9xnc2nvuv5hzla09ej
 check(!str_contains($sanitized,'prl1pcc') && !str_contains($sanitized,'secret123'),'Sensitive log text leaked');
 check(miner_finite_decimal('0.135',6)==='0.135000','Rate precision failed');
 check(miner_finite_decimal('-1')===null,'Negative rate accepted');
-check(count(MINER_ORGANIZATIONS)===2,'Two Salad organizations required');
+check(miner_valid_salad_slug('hache'),'HACHE valid');
+check(miner_valid_salad_slug('interactive'),'INTERACTIVE valid');
+check(miner_valid_salad_slug('new-organization-5'),'New organizations supported');
+check(!miner_valid_salad_slug('../hache'),'Path traversal organization rejected');
+check(!miner_valid_salad_slug('invalid_underscore'),'Invalid organization slug rejected');
 echo "PASS core-security-regression\n";
