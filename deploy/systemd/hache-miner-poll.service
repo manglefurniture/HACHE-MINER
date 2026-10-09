@@ -1,0 +1,25 @@
+[Unit]
+Description=HACHE-MINER historical read-only collector
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hache-miner
+Group=hache-miner
+WorkingDirectory=/srv/hache-miner/current
+ExecStart=/usr/bin/php -d auto_prepend_file=/etc/hache-miner/load-env.php /srv/hache-miner/current/bin/poll.php
+Environment=MINER_POLL_LOCK=/var/lib/hache-miner/poll.lock
+TimeoutStartSec=150
+MemoryMax=128M
+CPUQuota=25%
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/var/lib/hache-miner
+UMask=0077
