@@ -21,6 +21,7 @@ rollback() {
   if [[ "$committed" -ne 1 ]]; then
     echo "INSTALL_NOT_COMPLETED: rolling back new vhost and FPM pool" >&2
     if [[ "$installed_site" -eq 1 ]]; then
+      rm -f -- "$challenge/hm-probe"
       rm -f -- "$enabled" "$vhost"
       if /usr/sbin/nginx -t >/dev/null 2>&1; then systemctl reload nginx || true; fi
     fi
@@ -99,13 +100,31 @@ installed_site=1
 /usr/sbin/nginx -t
 systemctl reload nginx
 
-# Confirm the local ACME route before requesting a certificate.
+# Nginx reload is asynchronous too: newly enabled server_name may not
+# be served by the old workers immediately. Wait for the exact static probe
+# (not merely HTTP 200 from a different vhost) before requesting Let's Encrypt.
 printf 'HACHE-MINER-ACME-OK\n' > "$challenge/hm-probe"
-if [[ "$(curl --fail --silent --show-error --max-time 10 --resolve "$domain:80:127.0.0.1" "http://$domain/.well-known/acme-challenge/hm-probe")" != "HACHE-MINER-ACME-OK" ]]; then
-  echo "ERROR: local ACME routing does not match Nginx" >&2
+acme_ready=0
+for attempt in $(seq 1 30); do
+  response="$(curl --noproxy '*' --fail --silent --max-time 3 \
+    --resolve "$domain:80:127.0.0.1" \
+    "http://$domain/.well-known/acme-challenge/hm-probe" 2>/dev/null || true)"
+  if [[ "$response" == "HACHE-MINER-ACME-OK" ]]; then
+    acme_ready=1
+    break
+  fi
+  if ! systemctl is-active --quiet nginx; then
+    echo "ERROR: shared Nginx service became unavailable" >&2
+    exit 2
+  fi
+  sleep 1
+done
+if [[ "$acme_ready" -ne 1 ]]; then
+  echo "ERROR: local ACME route never served our exact probe after 30-second wait" >&2
   exit 2
 fi
 rm -f "$challenge/hm-probe"
+echo 'MINER_ACME_ROUTE_READY'
 
 # Use the account Certbot already has configured on this host, if available.
 # This can fail when Cloudflare forces HTTPS for HTTP-01; do not weaken TLS.
@@ -122,11 +141,30 @@ certbot certonly --non-interactive --agree-tos --webroot \
 install -o root -g root -m 0644 "$release/deploy/nginx-hache-miner-https.conf.example" "$vhost"
 /usr/sbin/nginx -t
 systemctl reload nginx
-health="$(curl --fail --silent --show-error --max-time 12 --resolve "$domain:443:127.0.0.1" "https://$domain/healthz")"
-[[ "$health" == "ok" ]] || { echo "ERROR: miner readiness endpoint returned an unexpected result" >&2; exit 2; }
-curl --fail --silent --show-error --max-time 12 \
-  --resolve "$domain:443:127.0.0.1" "https://$domain/?page=login" \
-  | grep -q 'Iniciar sesión' || { echo "ERROR: login page unavailable" >&2; exit 2; }
+# Wait for HTTPS server_name to become active; do not mistake the old
+# unrelated default vhost for our protected miner app.
+https_ready=0
+for attempt in $(seq 1 30); do
+  health="$(curl --noproxy '*' --fail --silent --max-time 4 \
+    --resolve "$domain:443:127.0.0.1" "https://$domain/healthz" 2>/dev/null || true)"
+  if [[ "$health" == "ok" ]]; then
+    login="$(curl --noproxy '*' --fail --silent --max-time 4 \
+      --resolve "$domain:443:127.0.0.1" "https://$domain/?page=login" 2>/dev/null || true)"
+    if [[ "$login" == *'Iniciar sesión'* ]]; then
+      https_ready=1
+      break
+    fi
+  fi
+  if ! systemctl is-active --quiet nginx; then
+    echo "ERROR: shared Nginx stopped during TLS activation" >&2
+    exit 2
+  fi
+  sleep 1
+done
+if [[ "$https_ready" -ne 1 ]]; then
+  echo "ERROR: miner HTTPS health/login unavailable after 30-second wait" >&2
+  exit 2
+fi
 
 committed=1
 echo "MINER_HTTPS_READY"
