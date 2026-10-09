@@ -48,3 +48,43 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
  color:#ffcf9d;border:1px solid #b27d51;border-radius:9px;text-decoration:none;font-weight:700}
 .reallocate-link:hover,.reallocate-link:focus-visible{border-color:#ffe1bd;background:#31251d}
 .monitor-group td[data-label="Acción"]{white-space:normal}
+
+/* The monitor's own cards stay visible while technical details are collapsed. */
+.monitor-entry{
+ border:1px solid #34516a;border-left:4px solid var(--accent);
+ background:linear-gradient(145deg,#172a3e,#102036);
+ border-radius:14px;padding:18px 20px;margin:16px 0;
+ box-shadow:0 5px 14px #040a1350
+}
+.monitor-entry .monitor-group{border:0;border-radius:0;margin:0;padding:0}
+.monitor-entry .monitor-group>summary{
+ display:flex;align-items:center;gap:8px 16px;
+ flex-wrap:wrap;min-height:42px;list-style:none
+}
+.monitor-entry .monitor-group>summary::-webkit-details-marker{display:none}
+.monitor-entry .monitor-group>summary::before{
+ content:'▸';font-size:1.3rem;color:var(--accent);line-height:1
+}
+.monitor-entry .monitor-group[open]>summary::before{content:'▾'}
+.monitor-entry .monitor-group>summary strong{font-size:1.08rem;flex:1 1 270px;min-width:170px}
+.monitor-entry .monitor-group>summary span{
+ border:1px solid #3a6c69;border-radius:999px;
+ padding:3px 10px;background:#163c3a;color:#94f5d8;font-weight:700
+}
+.monitor-entry .monitor-group>summary small{font-size:.82rem}
+.monitor-entry .monitor-group[open]{padding-bottom:12px}
+.monitor-entry-actions{border-top:1px solid #314a61;margin-top:14px;padding-top:12px;
+ display:flex;gap:10px;flex-wrap:wrap}
+.monitor-instance-shortcut{display:flex;align-items:center;flex-wrap:wrap;gap:10px;
+ padding:5px 10px 5px 0;min-width:0}
+.monitor-instance-id{font-size:.83rem;color:var(--muted)}
+.monitor-instance-id code{color:var(--text)}
+.monitor-instance-shortcut .reallocate-link{margin:0;background:#382718}
+@media(max-width:720px){
+ .monitor-entry{padding:13px;margin:11px 0}
+ .monitor-entry .monitor-group>summary{display:flex;gap:9px}
+ .monitor-entry .monitor-group>summary strong{flex:1 1 80%;min-width:0;overflow-wrap:anywhere}
+ .monitor-entry .monitor-group>summary span{font-size:.75rem}
+ .monitor-entry .monitor-group>summary small{width:100%}
+ .monitor-instance-shortcut{width:100%;justify-content:space-between}
+}
