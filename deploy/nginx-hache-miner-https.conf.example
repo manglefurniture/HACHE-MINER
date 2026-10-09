@@ -25,13 +25,13 @@ server {
     location = /index.php {
         internal;
         include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME /srv/hache-miner/current/public/index.php;
+        fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;
         fastcgi_param HTTPS on;
         fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
     }
     location = /healthz {
         include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME /srv/hache-miner/current/public/health.php;
+        fastcgi_param SCRIPT_FILENAME $realpath_root/health.php;
         fastcgi_param HTTPS on;
         fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
         access_log off;
