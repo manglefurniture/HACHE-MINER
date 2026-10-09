@@ -8,8 +8,10 @@ require_once __DIR__.'/core.php';
  */
 function miner_collector_health(?array $sync, int $now): string {
     if ($sync===null) return 'sin_datos';
-    $when=strtotime((string)($sync['observed_at']??''));
-    if ($when===false || $when>$now+120 || $now-$when>900) return 'atrasado';
+    $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)($sync['observed_at']??''),new DateTimeZone('UTC'));
+    if ($date===false) return 'atrasado';
+    $when=$date->getTimestamp();
+    if ($when>$now+120 || $now-$when>900) return 'atrasado';
     return match ((string)($sync['status']??'')) {
         'ok'=>'correcto',
         'partial'=>'parcial',
