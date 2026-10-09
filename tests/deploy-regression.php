@@ -12,6 +12,7 @@ $health = file_get_contents($root.'/public/health.php');
 $activate = file_get_contents($root.'/deploy/activate.sh');
 $installer = file_get_contents($root.'/deploy/install-https-web.sh');
 $collector = file_get_contents($root.'/deploy/enable-collector-timer.sh');
+$importer = file_get_contents($root.'/bin/import-shared-salad-key.php');
 $upgrade = file_get_contents($root.'/deploy/upgrade-miner-vhost.sh');
 assert_deploy(str_contains($nginx, 'root /srv/hache-miner/current/public'), 'Webroot must be public');
 assert_deploy(str_contains($nginx, 'location ~ \\.php$ { return 404; }'), 'Other PHP scripts must not be served');
@@ -46,4 +47,8 @@ assert_deploy(str_contains($collector, 'hache-salad-monitor.timer'), 'Collector 
 assert_deploy(str_contains($collector, 'miner_shared_salad_api_key()'), 'Collector requires shared Salad key before activation');
 assert_deploy(str_contains($collector, 'MINER_COLLECTOR_ROLLED_BACK'), 'Collector must roll back failed activation');
 assert_deploy(str_contains($collector, 'result >= 1'), 'Collector must verify API connectivity before scheduling');
+assert_deploy(str_contains($importer, 'posix_geteuid() !== 0'), 'Salad import must require root');
+assert_deploy(str_contains($importer, "'/etc/hache-salad-monitor.env'"), 'Source must be the existing private legacy env file');
+assert_deploy(str_contains($importer, "miner_put_secret('salad:api-key'"), 'Importer must store the shared key encrypted');
+assert_deploy(str_contains($importer, 'SALAD_SHARED_KEY_ALREADY_CONFIGURED'), 'Importer must not rotate an existing shared key');
 echo "PASS deploy-isolation-regression\n";
