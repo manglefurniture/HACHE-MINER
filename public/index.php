@@ -74,7 +74,8 @@ try {
                     // Consume challenge before making any non-idempotent request.
                     unset($_SESSION['reallocation_challenge']);
                     miner_reallocation_execute($uid,(int)$postedId,$postedInstance);
-                    header('Location: /?page=monitor&reallocated=1',true,303);exit;
+                    $_SESSION['manual_reallocate_success']='Salad aceptó tu solicitud manual para otra máquina. La nueva asignación todavía no está confirmada.';
+                    header('Location: /?page=monitor',true,303);exit;
                 } elseif ($action==='wallet') {
                     $org=(string)($_POST['organization']??'');$address=trim((string)($_POST['address']??''));
                     $label=trim((string)($_POST['label']??''));
@@ -107,7 +108,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$reallocationTarget=null;$reallocationChallenge='';
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -118,12 +119,22 @@ try {
         $rates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
         if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
-        if ($page==='monitor') $monitorData=miner_monitor_inventory();
+        if ($page==='monitor') {
+            $monitorData=miner_monitor_inventory();
+            $manualCooldown=miner_reallocation_cooldown_index();
+            if (isset($_SESSION['manual_reallocate_success']) && is_string($_SESSION['manual_reallocate_success'])) {
+                $manualSuccess=$_SESSION['manual_reallocate_success'];
+                unset($_SESSION['manual_reallocate_success']);
+            }
+        }
         if ($page==='reallocate') {
             try {
                 $getGroup=filter_var($_GET['group_id']??null,FILTER_VALIDATE_INT);
                 $getInstance=(string)($_GET['instance_id']??'');
                 $reallocationTarget=miner_reallocation_target((int)$getGroup,$getInstance);
+                if(miner_reallocation_cooldown_seconds($reallocationTarget,$getInstance)>0) {
+                    throw new DomainException('Manual cooldown still active');
+                }
                 if ($_SERVER['REQUEST_METHOD']==='GET') {
                     $reallocationChallenge=bin2hex(random_bytes(24));
                     $_SESSION['reallocation_challenge']=[
@@ -180,7 +191,7 @@ function orgselect(): void {
 <p class="muted">Registro independiente para HACHE e INTERACTIVE. Los datos no observados se muestran como desconocidos, nunca como cero.</p>
 <nav><a href="/">Resumen</a><a href="/?page=monitor">Monitor GPU</a><a href="/?page=finance">Finanzas</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
 <?php if(isset($_GET['saved'])): ?><p class="success">Configuración guardada.</p><?php endif; ?>
-<?php if($page==='monitor' && isset($_GET['reallocated'])): ?><p class="success">Salad aceptó la solicitud de reasignación (HTTP 202). La asignación al nuevo nodo todavía está pendiente de confirmarse.</p><?php endif; ?>
+<?php if($page==='monitor' && $manualSuccess!==null): ?><p class="success"><?= miner_h($manualSuccess) ?></p><?php endif; ?>
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
 <?php if($page==='reallocate'): ?>
 <section class="card"><h2>Segunda validación · Reasignar instancia</h2>
@@ -189,7 +200,7 @@ function orgselect(): void {
 Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></strong></p>
 <p>Grupo: <strong><?= miner_h((string)$reallocationTarget['group_name']) ?></strong></p>
 <p>Instancia exacta: <code><?= miner_h((string)$reallocationTarget['instance_id']) ?></code></p>
-<p class="muted">¿Confirmas que quieres retirar este nodo y solicitar a Salad otra asignación? La minería puede interrumpirse y la disponibilidad del nodo nuevo no está garantizada. No modifica la GPU, prioridad ni el número de réplicas.</p>
+<p class="muted">Este es un control <strong>manual independiente</strong> de las reglas automáticas: puedes utilizarlo incluso si la GPU trabaja a 140 TH/s o más. Solicita a Salad retirar este nodo y buscar otro. La minería puede interrumpirse y una máquina mejor no está garantizada. No modifica la GPU, prioridad ni el número de réplicas.</p>
 <form method="post" action="/?page=reallocate&amp;group_id=<?= (int)$reallocationTarget['id'] ?>&amp;instance_id=<?= rawurlencode((string)$reallocationTarget['instance_id']) ?>">
 <input type="hidden" name="csrf" value="<?= $csrf ?>">
 <input type="hidden" name="challenge" value="<?= miner_h($reallocationChallenge) ?>">
@@ -241,9 +252,14 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <td data-label="Estado"><?= miner_h($node['state']) ?></td>
 <td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
 <td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td>
-<td data-label="Acción"><?php if($g['recent'] && $node['ready'] && $node['state']==='running'): ?>
-<a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Reasignar instancia</a>
-<?php else: ?><span class="muted">No disponible</span><?php endif; ?></td></tr><?php endforeach; ?>
+<td data-label="Acción"><?php
+ $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
+ $cooldown=$manualCooldown[$fingerprint]??0;
+ if($cooldown>0): ?>
+ <span class="muted">Solicitada recientemente · esperar <?= (int)ceil($cooldown/60) ?> min</span>
+ <?php elseif($g['recent'] && $node['ready'] && $node['state']==='running'): ?>
+ <a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Buscar otro nodo</a>
+ <?php else: ?><span class="muted">No disponible</span><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div><?php endif; ?>
 </details>
 <?php endforeach;endforeach; ?>
