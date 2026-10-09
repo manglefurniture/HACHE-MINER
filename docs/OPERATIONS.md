@@ -51,3 +51,14 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - Antes de activar una versión con estas tablas, ejecutar como root el script versionado `deploy/apply-private-migrations.sh` desde su release. Crea un backup de la DB en directorio root 0700, aplica migraciones aditivas y verifica filas iniciales.
 - El backup SQL local **no sustituye** un respaldo externo cifrado y recuperable de `master.key`. No guardar API keys hasta preparar el respaldo externo.
 - La integración de Salad **solo lee** grupos y logs; añadir organizaciones no incrementa cuotas, no crea recursos, no elude las políticas del proveedor.
+
+## Kryptex PRL: integración verificada (octubre 2026)
+
+- La API pública de Kryptex respondió con `unconfirmed` y `confirmed` en `/prl/api/v1/miner/balance/{address}`; se guardan en `pool_observations.pending_prl` y `confirmed_prl` como saldos **PRL**, no USD ni ingresos del intervalo.
+- `/prl/api/v3/miner/workers/{address}` devuelve `results[]`; los workers con `status=online` proporcionan `avg_hashrate_30m` en H/s. Se registra hashrate del **pool por billetera**, no de una GPU o de una organización de Salad.
+- Varias organizaciones pueden etiquetar la misma billetera: se consulta solo una vez por ciclo. No sumar sus saldos al consolidar por organización; provocaría doble contabilidad.
+- Límite: dos billeteras únicas por ciclo con peticiones de máximo seis segundos; las demás rotan en siguientes ciclos. No se generan datos ficticios si falla balance o workers.
+- `wallets` se configura desde el panel privado, con direcciones **públicas** PRL; nunca guardar frases semilla.
+- Los balances `pending` / `confirmed` son fotografías del saldo, no ganancias por hora, ni pagos acumulados, ni ingresos netos. Falta incorporar pagos verificados, precio efectivo de venta de PRL y los gastos reales facturados.
+- La API pública de SaladCloud utilizada para gestionar grupos e instancias no ofrece una consulta documentada de facturación ni de saldos. El gasto estimado por tiempo y tarifa confirmada no puede presentarse como gasto real.
+- El recolector de Salad tiene prioridad; Kryptex se consulta al final y los tiempos por petición están limitados.

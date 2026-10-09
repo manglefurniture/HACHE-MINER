@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
+require_once dirname(__DIR__).'/app/kryptex.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -112,19 +113,68 @@ function miner_poll_salad(string $org,string $project,string $key): void {
       'group snapshots: '.$recorded.'; partial groups: '.$failed.'; instance identity maintained');
 }
 function miner_poll_kryptex(): void {
-    $wallets=miner_db()->query("SELECT id,address FROM wallets WHERE coin='PRL' ORDER BY id")->fetchAll();
-    if(!$wallets){miner_run_record('kryptex:prl','missing','No public PRL wallets configured');return;}
-    foreach($wallets as $w){
-        try{
-            $data=miner_http_json('https://pool.kryptex.com/prl/api/v1/miner/balance/'.rawurlencode($w['address']));
-            // Provider schema must be mapped after inspecting real response; never infer payout from arbitrary numbers.
-            $pending=null;$confirmed=null;$note='API reachable; balances not yet mapped/verified';
-            $st=miner_db()->prepare('INSERT IGNORE INTO pool_observations(wallet_id,observed_at,pending_prl,confirmed_prl,coverage_note) VALUES (?,UTC_TIMESTAMP(),?,?,?)');
-            $st->execute([$w['id'],$pending,$confirmed,$note]);
-            miner_run_record('kryptex:wallet:'.$w['id'],'partial',$note);
-        }catch(Throwable $e){
-            miner_run_record('kryptex:wallet:'.$w['id'],'error','API not available: '.get_class($e));
+    $wallets=miner_db()->query("SELECT id,address FROM wallets WHERE coin='PRL' ORDER BY id LIMIT 101")->fetchAll();
+    if (!$wallets) {
+        miner_run_record('kryptex:prl','missing','No public PRL wallets configured');return;
+    }
+    if (count($wallets)>100) {
+        miner_run_record('kryptex:prl','partial','More than 100 configured wallet records; limit protects collector resources');
+        $wallets=array_slice($wallets,0,100);
+    }
+    // A shared wallet is queried once even when labelled in many organizations.
+    // Rotate at most TWO distinct public wallets per 5-minute cycle to protect
+    // the 150-second Salad collector budget from slow external pool endpoints.
+    $distinct=array_values(array_unique(array_column($wallets,'address')));
+    $allowed=[];
+    for($i=0;$i<min(2,count($distinct));$i++) {
+        $start=(int)floor(time()/300)%max(1,count($distinct));
+        $allowed[$distinct[($start+$i)%count($distinct)]]=true;
+    }
+    $cache=[];
+    foreach ($wallets as $w) {
+        $address=(string)$w['address'];
+        if (!isset($allowed[$address])) {
+            miner_run_record('kryptex:wallet:'.$w['id'],'partial','Wallet collection deferred to next cycle (bounded requests)');
+            continue;
         }
+        if (!isset($cache[$address])) {
+            try {
+                if (!preg_match('/^prl1[a-z0-9]{30,150}$/D',$address)) {
+                    throw new InvalidArgumentException('Invalid public PRL address');
+                }
+                $url='https://pool.kryptex.com/prl/api/v1/miner/balance/'.rawurlencode($address);
+                $balance=miner_kryptex_balance(miner_http_json($url,[],6));
+                $status='ok';$note='Kryptex PRL public API: pending/confirmed verified; worker 30m H/s wallet-wide';
+                try {
+                    $workers=miner_kryptex_workers(miner_http_json(
+                        'https://pool.kryptex.com/prl/api/v3/miner/workers/'.rawurlencode($address),[],6));
+                    if ($workers['partial']) {
+                        $status='partial';$note='Kryptex balance verified; incomplete pool hashrate';
+                    }
+                } catch(Throwable $e) {
+                    $workers=['hashrate_raw'=>null,'worker_count'=>null];
+                    $status='partial';
+                    $note='Kryptex balance verified; workers unavailable ('.get_class($e).')';
+                }
+                $cache[$address]=['balance'=>$balance,'workers'=>$workers,'status'=>$status,'note'=>$note];
+            } catch(Throwable $e) {
+                $cache[$address]=['error'=>get_class($e)];
+            }
+        }
+        $result=$cache[$address];
+        $source='kryptex:wallet:'.$w['id'];
+        if (isset($result['error'])) {
+            miner_run_record($source,'error','Kryptex balance unavailable ('.$result['error'].')');
+            continue;
+        }
+        $st=miner_db()->prepare('INSERT IGNORE INTO pool_observations(wallet_id,observed_at,pending_prl,confirmed_prl,hashrate_raw,worker_count,coverage_note) VALUES (?,UTC_TIMESTAMP(),?,?,?,?,?)');
+        $st->execute([
+            $w['id'],
+            $result['balance']['pending_prl'],$result['balance']['confirmed_prl'],
+            $result['workers']['hashrate_raw'],$result['workers']['worker_count'],
+            $result['note']
+        ]);
+        miner_run_record($source,$result['status'],$result['note']);
     }
 }
 try {
