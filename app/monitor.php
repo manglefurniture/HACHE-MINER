@@ -103,12 +103,12 @@ function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=n
     return $found;
 }
 /** Never call an estimated threshold a proven USD profit. */
-function miner_monitor_profit_signal(string $group,string $priority,?array $metric): array {
+function miner_monitor_profit_signal(string $group,string $priority,?array $metric,bool $verifiedPearlhash=false): array {
     if($metric===null) return ['level'=>'unknown','label'=>'Sin medición individual','floor'=>null,'margin'=>null];
     $hash=(float)($metric['hashrate_ths']??-1);
     $gpu=strtoupper((string)($metric['gpu_model']??$metric['gpu']??''));
     if(!is_finite($hash)||$hash<0)return ['level'=>'unknown','label'=>'Sin medición individual','floor'=>null,'margin'=>null];
-    if(!str_starts_with(strtolower($group),'prl-')
+    if(!($verifiedPearlhash || str_starts_with(strtolower($group),'prl-'))
       || strtolower($priority)!=='low'
       || !str_contains($gpu,'4070 TI SUPER')) {
        return ['level'=>'neutral','label'=>'Sin umbral económico validado','floor'=>null,'margin'=>null];
@@ -169,6 +169,12 @@ function miner_monitor_inventory(): array {
          ORDER BY logged_at DESC LIMIT 1500")->fetchAll(PDO::FETCH_ASSOC);
     $warningCount=[];
     foreach($logs as $log)$warningCount[(int)$log['group_id']]=($warningCount[(int)$log['group_id']]??0)+1;
+    // Recent explicit pearlhash evidence prevents treating QTC / Quantus hash as PRL.
+    // Unverified names remain neutral; actual measured algorithm takes priority.
+    $algoGroups=$db->query("SELECT DISTINCT group_id FROM log_events
+      WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 30 MINUTE
+      AND summary LIKE '%[pearlhash]%'")->fetchAll(PDO::FETCH_COLUMN);
+    $pearlhashGroupIds=array_fill_keys(array_map('intval',$algoGroups),true);
     // Historical samples are per (group,instance), not raw group logs.
     $samples=$db->query("SELECT group_id,instance_id,observed_at,hashrate_ths,gpu_model,watts
          FROM miner_observations
@@ -198,6 +204,7 @@ function miner_monitor_inventory(): array {
         $group['observed']=$observed;
         $group['ready']=$ready;
         $group['warnings']=$recent?($warningCount[$id]??0):0;
+        $group['pearlhash_verified']=$recent && isset($pearlhashGroupIds[$id]);
         $total=0.0;$measured=0;$signals=[];
         foreach($group['instances'] as &$node){
             $key=$id."\0".$node['id'];
@@ -215,7 +222,7 @@ function miner_monitor_inventory(): array {
                 'watts'=>$latest['watts']===null?null:(float)$latest['watts'],
                 'at'=>$latest['observed_at']
             ]:null;
-            $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric']);
+            $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric'],$group['pearlhash_verified']);
             $node['avg_recent']=null;
             if(count($rows)>=2){
                 $recentRows=array_slice($rows,-3);
