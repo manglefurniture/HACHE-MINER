@@ -73,6 +73,10 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 
 
 ## Reasignación manual protegida (2026-10)
+- La intervención manual es un **override voluntario**: no consulta umbrales de hashrate, rentabilidad ni caída de rendimiento. Por ejemplo, el administrador puede solicitar otra máquina incluso con **140 TH/s** o más. Nunca inicia acciones por sí sola.
+- El temporizador original `hache-salad-monitor.timer` y sus umbrales de auto-reallocate **se mantienen habilitados e independientes**. El botón no desactiva, pausa ni cambia la lógica automática. Durante la migración no se promete exclusión global entre servicios: el supervisor automático podría solicitar el mismo cambio en un intervalo coincidente.
+- El dashboard muestra el cooldown manual de 15 minutos por **instancia exacta** con base en su auditoría, sin consultas SQL individuales por botón. La pantalla de confirmación vuelve a verificar el cooldown; el backend lo impone bajo lock.
+- Mensajes de aceptación solo proceden de un resultado HTTP 202 y se conservan como aviso efímero del lado servidor, nunca mediante parámetros GET manipulables por el navegador.
 - En Monitor GPU, cada instancia individual identificada y observada recientemente como `running + ready + started` muestra «Reasignar instancia». **No hay una acción global por grupo**: el ID exacto evita mover las otras réplicas.
 - El primer clic solo abre una pantalla de validación. Se requiere sesión administrativa, token CSRF, desafío aleatorio de sesión de tres minutos, volver a escribir `REASIGNAR` y **contraseña actual** (aunque el dispositivo esté recordado). Cinco fallos de contraseña en quince minutos suspenden la autorización manual hasta que expire la ventana.
 - Antes del POST oficial de Salad se verifican de nuevo grupo/proyecto habilitado y última instancia observada en MariaDB y se obtiene su estado actual desde la API de Salad con el ID exacto. La petición de reasignación se realiza **únicamente al confirmar**, mediante `POST /organizations/{org}/projects/{project}/containers/{group}/instances/{instance_id}/reallocate`.
