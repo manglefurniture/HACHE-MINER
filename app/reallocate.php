@@ -99,7 +99,7 @@ function miner_reallocation_execute(int $adminId,int $groupId,string $instanceId
             .'/instances/'.rawurlencode($instanceId);
         // No POST if Salad no longer reports the exact same instance as running.
         $live=miner_reallocation_api_instance($base,$key);
-        if (($live['id']??null)!==$instanceId || !miner_instance_ready($live)) {
+        if ((($live['instance_id']??$live['id']??null)!==$instanceId) || !miner_instance_ready($live)) {
             throw new DomainException('Salad instance changed since monitoring');
         }
         miner_audit($adminId,'manual_reallocate_intent',$fingerprint);
