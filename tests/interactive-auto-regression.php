@@ -25,7 +25,7 @@ auto_check(miner_auto_low_prl_metric([$row('2026-10-09 21:09:00',125.01),$sample
 auto_check(miner_auto_low_prl_metric([$samples[0],$row('2026-10-09 21:04:00',156),$samples[2]],$now)===null,'Recovered GPU must not trigger');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:59:00',52.0,'RTX 5080')],$now)===null,'Different GPU model must be excluded');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:59:00',52.0,'RTX 4070 Ti SUPER','allocating')],$now)===null,'Allocating not eligible');
-auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:59:00',52.0)+['ready'=>0]],$now)===null,'Unready not eligible');
+auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],array_replace($row('2026-10-09 20:59:00',52.0),['ready'=>0])],$now)===null,'Unready not eligible');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:57:00',52.0)],$now)===null,'Stale or gapped must reset policy');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 21:04:00',52.0)],$now)===null,'Duplicate timestamps cannot fake persistence');
 auto_check(miner_auto_low_prl_metric([$row('2026-10-09 20:59:00',50),$row('2026-10-09 20:54:00',50),$row('2026-10-09 20:49:00',50)],$now)===null,'Outdated samples cannot trigger');
