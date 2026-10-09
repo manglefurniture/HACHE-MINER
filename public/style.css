@@ -33,3 +33,12 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
   .mobile-stack td small{display:block;overflow-wrap:anywhere;font-size:.76rem;margin-top:3px}
   .mobile-stack td:last-child:nth-child(odd){grid-column:1/-1}
 }
+
+.monitor-group{border:1px solid var(--outline);border-radius:12px;margin:10px 0;padding:13px 15px}
+.monitor-group>summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;cursor:pointer;overflow-wrap:anywhere}
+.monitor-group>summary strong{min-width:160px;flex:1;overflow-wrap:anywhere}
+.monitor-group>summary span{color:var(--accent);font-size:.82rem}
+.monitor-group>summary small{color:var(--muted);font-size:.79rem}
+.monitor-group[open]>summary{margin-bottom:10px}
+.monitor-group code{overflow-wrap:anywhere}
+@media(max-width:540px){.monitor-group{padding:10px}.monitor-group>summary{display:block}.monitor-group>summary>*{display:block;margin-bottom:5px}}
