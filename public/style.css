@@ -42,3 +42,9 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
 .monitor-group[open]>summary{margin-bottom:10px}
 .monitor-group code{overflow-wrap:anywhere}
 @media(max-width:540px){.monitor-group{padding:10px}.monitor-group>summary{display:block}.monitor-group>summary>*{display:block;margin-bottom:5px}}
+
+/* High-impact manual operation: visually distinct from read-only controls. */
+.reallocate-link{display:inline-flex;align-items:center;min-height:38px;padding:6px 11px;
+ color:#ffcf9d;border:1px solid #b27d51;border-radius:9px;text-decoration:none;font-weight:700}
+.reallocate-link:hover,.reallocate-link:focus-visible{border-color:#ffe1bd;background:#31251d}
+.monitor-group td[data-label="Acción"]{white-space:normal}

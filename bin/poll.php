@@ -60,7 +60,7 @@ function miner_log_save(int $groupId,array $items): void {
     }
 }
 function miner_instance_save(int $groupId,array $instance,string $now,?string $rate): void {
-    $instanceId=(string)($instance['id']??'');
+    $instanceId=(string)($instance['instance_id']??$instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
     $state=miner_instance_state($instance);
     $ready=($instance['ready']??null)===true;$started=($instance['started']??null)===true;
