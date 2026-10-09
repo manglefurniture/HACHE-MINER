@@ -70,7 +70,7 @@ try {
     http_response_code(503);exit('Sistema aún no configurado o temporalmente no disponible.');
 }
 function field(string $label,string $name,string $type='text',string $placeholder=''): void {
-    echo '<label>'.miner_h($label).'<input required name="'.miner_h($name).'" type="'.miner_h($type).'" placeholder="'.miner_h($placeholder).'" '.($type==='number'?'step="any" min="0"':'maxlength="200"') autocomplete="off"></label>';
+    echo '<label>'.miner_h($label).'<input required name="'.miner_h($name).'" type="'.miner_h($type).'" placeholder="'.miner_h($placeholder).'" '.($type==='number'?'step="any" min="0"':'maxlength="200"').' autocomplete="off"></label>';
 }
 function orgselect(): void {echo '<select name="organization"><option value="hache">HACHE</option><option value="interactive">INTERACTIVE</option></select>';}
 ?><!doctype html>
