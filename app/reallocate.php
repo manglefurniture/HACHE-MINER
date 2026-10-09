@@ -56,6 +56,10 @@ function miner_reallocation_password(int $adminId,string $password,string $ip): 
     $st->execute([$account,$hash,$ok?1:0]);
     return $ok;
 }
+function miner_reallocation_live_matches(array $live,string $expectedId): bool {
+    return ($live['instance_id']??$live['id']??null)===$expectedId
+        && miner_instance_ready($live);
+}
 function miner_reallocation_api_instance(string $base,string $key): array {
     return miner_http_json($base,['Salad-Api-Key: '.$key,'Accept: application/json'],8);
 }
@@ -73,7 +77,7 @@ function miner_reallocation_request(string $url,string $key): int {
     $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
     curl_close($ch);
     // An HTTP 202 means accepted, NOT that the new node is allocated.
-    return is_string($response)?$status:0;
+    return $response===false?0:$status;
 }
 /** Intent is recorded BEFORE the non-idempotent API call. Never retry automatically. */
 function miner_reallocation_execute(int $adminId,int $groupId,string $instanceId): void {
@@ -99,7 +103,7 @@ function miner_reallocation_execute(int $adminId,int $groupId,string $instanceId
             .'/instances/'.rawurlencode($instanceId);
         // No POST if Salad no longer reports the exact same instance as running.
         $live=miner_reallocation_api_instance($base,$key);
-        if ((($live['instance_id']??$live['id']??null)!==$instanceId) || !miner_instance_ready($live)) {
+        if (!miner_reallocation_live_matches($live,$instanceId)) {
             throw new DomainException('Salad instance changed since monitoring');
         }
         miner_audit($adminId,'manual_reallocate_intent',$fingerprint);
