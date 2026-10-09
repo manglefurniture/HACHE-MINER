@@ -4,6 +4,8 @@ require_once dirname(__DIR__).'/app/core.php';
 miner_security_headers();
 try {
     miner_session();
+    miner_restore_remember();
+    if (isset($_SESSION['admin_id']) && ($_GET['page']??'')==='login') { header('Location: /',true,303);exit; }
     $page=(string)($_GET['page']??'dashboard');
     $error='';$notice='';
     if ($_SERVER['REQUEST_METHOD']==='POST') {
@@ -11,16 +13,24 @@ try {
         $action=(string)($_POST['action']??'');
         if ($action==='login') {
             if (miner_login((string)($_POST['username']??''),(string)($_POST['password']??''),(string)($_SERVER['REMOTE_ADDR']??''))) {
+                if (isset($_POST['remember_device']) && $_POST['remember_device']==='yes') {
+                    miner_issue_remember((int)$_SESSION['admin_id'],(string)($_SERVER['HTTP_USER_AGENT']??''));
+                } else {
+                    miner_revoke_current_device((int)$_SESSION['admin_id']);
+                }
                 header('Location: /',true,303);exit;
             }
             $error='Credenciales incorrectas o temporalmente bloqueadas.';
         } else {
             $uid=miner_require_admin();
             if ($action==='logout') {
+                miner_revoke_current_device($uid);
                 miner_audit($uid,'logout');$_SESSION=[];session_destroy();header('Location: /?page=login',true,303);exit;
             }
             try {
-                if ($action==='secret') {
+                if ($action==='revoke_devices') {
+                    miner_revoke_all_devices($uid);
+                } elseif ($action==='secret') {
                     $name=(string)($_POST['secret_name']??'');
                     if (!in_array($name,['salad:hache:api-key','salad:interactive:api-key'],true)) throw new InvalidArgumentException('Secreto no permitido.');
                     miner_put_secret($name,(string)($_POST['secret_value']??''));
@@ -56,7 +66,7 @@ try {
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
     $orgs=MINER_ORGANIZATIONS;
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];
     if ($page!=='login') {
         $groups=miner_db()->query('SELECT organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
         $wallets=miner_db()->query('SELECT organization,coin,label,address FROM wallets ORDER BY organization,label')->fetchAll();
@@ -64,6 +74,10 @@ try {
         $secrets=miner_db()->query('SELECT secret_name,updated_at FROM secret_store ORDER BY secret_name')->fetchAll();
         $rates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
+        if ($page==='settings') {
+            $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
+            $s->execute([$uid]);$trustedDevices=$s->fetchAll();
+        }
     }
 } catch(Throwable $e) {
     error_log('[hache-miner] page-error '.get_class($e));
@@ -85,6 +99,8 @@ function orgselect(): void {echo '<select name="organization"><option value="hac
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
 <label>Usuario<input required name="username" autocomplete="username" maxlength="64"></label>
 <label>Contraseña<input required type="password" name="password" autocomplete="current-password"></label>
+<label class="remember-label"><input name="remember_device" type="checkbox" value="yes"> Recordar este dispositivo durante 30 días</label>
+<p class="muted">Solo actívalo en un teléfono o computadora personal. Puedes revocarlo desde Configuración.</p>
 <button name="action" value="login">Ingresar</button></form></section>
 <?php else: ?>
 <div class="eyebrow">CENTRO DE OPERACIONES / HACHE INTERACTIVE</div>
@@ -95,6 +111,12 @@ function orgselect(): void {echo '<select name="organization"><option value="hac
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
 <?php if($page==='settings'): ?>
 <div class="grid">
+<section class="card"><h2>Dispositivos recordados</h2>
+<p class="muted">Se mantiene el acceso durante 30 días sin almacenar tu contraseña. Cerrar sesión revoca el dispositivo actual.</p>
+<?php if (!$trustedDevices): ?><p class="muted">No hay dispositivos recordados.</p><?php endif; ?>
+<?php foreach($trustedDevices as $t): ?><p><?= miner_h($t['device_label']) ?> · <small>Vence <?= miner_h($t['expires_at']) ?> UTC</small></p><?php endforeach; ?>
+<?php if ($trustedDevices): ?><form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><button name="action" value="revoke_devices">Revocar todos los dispositivos</button></form><?php endif; ?>
+</section>
 <section class="card"><h2>Claves API cifradas</h2><p class="muted">Los valores nunca se muestran después de guardarlos.</p>
 <?php foreach(['salad:hache:api-key','salad:interactive:api-key'] as $n): ?>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><input type="hidden" name="secret_name" value="<?= miner_h($n) ?>">

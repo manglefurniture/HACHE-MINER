@@ -25,6 +25,7 @@ jobs:
       - name: Security regression
         run: |
           php tests/core-regression.php
+          php tests/remember-regression.php
           php tests/deploy-regression.php
       - name: Public artifact must not contain local secrets
         shell: bash
