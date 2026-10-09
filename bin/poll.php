@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/kryptex.php';
+require_once dirname(__DIR__).'/app/monitor.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -59,7 +60,7 @@ function miner_log_save(int $groupId,array $items): void {
         $st->execute([$hash,$groupId,gmdate('Y-m-d H:i:s',$ts),$severity,$line]);
     }
 }
-function miner_instance_save(int $groupId,array $instance,string $now,?string $rate): void {
+function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null): void {
     $instanceId=(string)($instance['instance_id']??$instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
     $state=miner_instance_state($instance);
@@ -73,8 +74,12 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
         if($elapsed>0 && $elapsed<=420) $cost=number_format(((float)$rate)*$elapsed/3600,8,'.','');
     }
     // Group log hashrate must NOT be attributed to an individual replica without an instance ID.
-    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,estimated_cost_usd) VALUES (?,?,?,?,?,?,?)');
-    $st->execute([$groupId,$instanceId,$now,$state,(int)$ready,(int)$started,$cost]);
+    $safeMetric=$ready && $started && $state==='running' ? $metric:null;
+    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?)');
+    $st->execute([
+        $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
+        $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,$cost
+    ]);
 }
 function miner_poll_salad(string $org,string $project,string $key): void {
     $base='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/projects/'.rawurlencode($project).'/containers';
@@ -101,9 +106,21 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 $st->execute([$org,$g['gpu_class'],$g['priority']]);
                 $rate=$st->fetchColumn();if($rate===false)$rate=null;
             }
-            foreach($nodes as $node) if(is_array($node)) miner_instance_save($g['id'],$node,$now,$rate);
-            $logs=miner_logs($org,$project,$g['name'],$key);
-            miner_log_save($g['id'],$logs);
+            // The log response may identify multiple different instances.
+            // Only attribute a hashrate to a matching instance or a provably
+            // unique running node; never divide a group hashrate across replicas.
+            $logs=[];$logsError=null;
+            try {
+                $logs=miner_logs($org,$project,$g['name'],$key);
+                miner_log_save($g['id'],$logs);
+            } catch(Throwable $e) { $logsError=$e; }
+            $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
+            foreach($nodes as $node) {
+                if(!is_array($node))continue;
+                $id=(string)($node['instance_id']??$node['id']??'');
+                miner_instance_save($g['id'],$node,$now,$rate,$metrics[$id]??null);
+            }
+            if($logsError!==null)throw $logsError;
         } catch(Throwable $e) {
             $failed++;
             miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',get_class($e).' during collection');

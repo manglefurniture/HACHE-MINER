@@ -79,7 +79,7 @@ assert_deploy(str_contains($dashboard, "miner_pool_overview()"), 'Dashboard must
 assert_deploy(!str_contains($poolOverview,'miner_get_secret('), 'Wallet overview must not read private API keys');
 assert_deploy(str_contains($dashboard, "page==='monitor'") && str_contains($dashboard,'page=monitor'), 'Authenticated dynamic monitor must be navigable');
 assert_deploy(str_contains($dashboard, "page==='finance'") && str_contains($dashboard,'page=finance'), 'Finance view must be separate from operational state');
-assert_deploy(str_contains($monitor, 'FROM group_state ORDER BY organization,project_name,group_name'), 'Monitor cannot be limited to fixed group names');
+assert_deploy(str_contains($monitor, 'WHERE last_seen_at >= UTC_TIMESTAMP()-INTERVAL 8 HOUR ORDER BY organization,project_name,group_name'), 'Monitor cannot be limited to fixed group names');
 assert_deploy(str_contains($monitor, 'GROUP BY group_id,instance_id'), 'Instances must be deduplicated by ID');
 assert_deploy(str_contains($monitor, "INTERVAL 15 MINUTE"), 'Live-state must be bounded by freshness');
 assert_deploy(!str_contains($monitor,'miner_get_secret('), 'Read-only monitor must not query credentials');
@@ -102,9 +102,15 @@ assert_deploy(!str_contains($dashboard, "isset(\$_GET['reallocated'])"), 'User-c
 assert_deploy(str_contains($dashboard, "miner_reallocation_cooldown_seconds("), 'Confirmation screen must check cooldown');
 assert_deploy(str_contains($dashboard, "ceil(\$cooldown/60)"), 'Monitor must label the manual cooldown per instance');
 assert_deploy(str_contains($dashboard, "hash_file('sha256',__DIR__.'/style.css')"), 'CSS href must change when deployed contents change; Cloudflare caches styles for hours');
-assert_deploy(str_contains($dashboard, 'class="monitor-entry"'), 'Each group needs a visible card wrapper');
-assert_deploy(str_contains($dashboard, 'class="monitor-entry-actions"'), 'Manual per-instance actions must remain visible outside the collapsed details');
-assert_deploy(preg_match('/<\\/details>\\s*<div class="monitor-entry-actions">/', $dashboard)===1, 'The action row cannot be hidden by a collapsed details tag');
+assert_deploy(str_contains($dashboard, 'class="monitor-entry monitor-entry--'), 'Every group must remain a visible card');
+assert_deploy(str_contains($dashboard, 'class="monitor-node-action"'), 'Manual action must be visibly attached to each instance, not hidden in details');
+assert_deploy(strpos($dashboard, 'class="monitor-node-action"') < strpos($dashboard, '<details class="monitor-group">'), 'Manual action must not be hidden inside collapsed technical details');
 assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'Cooldown remains scoped to exact instance');
-assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-instance-shortcut'), 'Card and action styles must exist');
+assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-node--red') && str_contains($css, '.monitor-node--yellow') && str_contains($css, '.monitor-node--green'), 'Card and traffic-light styles must exist');
+assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
+assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
+assert_deploy(str_contains($poll, "hashrate_ths,gpu_model,watts"), 'Per-instance observations must store actual metrics');
+assert_deploy(str_contains($monitor, 'miner_monitor_log_instance('), 'Multi-replica GPU log IDs must be verified, not guessed');
+assert_deploy(str_contains($monitor, 'INTERVAL 8 HOUR'), 'Old deleted groups must be hidden but not deleted');
+assert_deploy(!str_contains($monitor, 'DELETE FROM group_state'), 'Filter-only retention must preserve financial and diagnostic history');
 echo "PASS deploy-isolation-regression\n";
