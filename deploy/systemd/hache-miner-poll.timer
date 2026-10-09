@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect HACHE-MINER observations every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=false
+AccuracySec=30s
+Unit=hache-miner-poll.service
+
+[Install]
+WantedBy=timers.target
