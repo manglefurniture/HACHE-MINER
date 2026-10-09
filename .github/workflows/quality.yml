@@ -20,6 +20,8 @@ jobs:
           extensions: sodium, pdo_mysql, mbstring, curl
       - name: Syntax
         run: find app public bin tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Bootstrap scripts syntax
+        run: bash -n deploy/*.sh
       - name: Security regression
         run: |
           php tests/core-regression.php
