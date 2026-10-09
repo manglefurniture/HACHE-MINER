@@ -94,4 +94,11 @@ assert_deploy(str_contains($reallocate, "manual_reallocate_intent"), 'Audit inte
 assert_deploy(str_contains($reallocate, "GET_LOCK(?,2)"), 'Manual requests must be serialized');
 assert_deploy(str_contains($reallocate, "INTERVAL 15 MINUTE"), 'Manual reallocation must have cooldown');
 assert_deploy(!str_contains($poll,'miner_reallocation_execute('), 'Poller must never reallocate an instance');
+assert_deploy(str_contains($reallocate, 'function miner_reallocation_cooldown_index('), 'Monitor cooldown must be read in one DB pass');
+assert_deploy(str_contains($reallocate, 'function miner_reallocation_cooldown_seconds('), 'Manual confirmation must enforce current cooldown');
+assert_deploy(!str_contains($reallocate, 'hashrate_ths') && !str_contains($reallocate, 'break_even_ths'), 'Manual override must not depend on hash or profit thresholds');
+assert_deploy(str_contains($dashboard, "manual_reallocate_success") && str_contains($dashboard, "unset(\$_SESSION['manual_reallocate_success'])"), 'Success must come from a single-use authenticated server-side flash');
+assert_deploy(!str_contains($dashboard, "isset(\$_GET['reallocated'])"), 'User-controlled GET must never forge success');
+assert_deploy(str_contains($dashboard, "miner_reallocation_cooldown_seconds("), 'Confirmation screen must check cooldown');
+assert_deploy(str_contains($dashboard, "ceil(\$cooldown/60)"), 'Monitor must label the manual cooldown per instance');
 echo "PASS deploy-isolation-regression\n";
