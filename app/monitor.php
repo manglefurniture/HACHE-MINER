@@ -293,7 +293,7 @@ function miner_monitor_inventory(): array {
     $unassignedLogRows=$db->query("SELECT group_id,logged_at,summary FROM log_events
         WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE
           AND summary LIKE '%TH/s%'
-        ORDER BY logged_at DESC,id DESC LIMIT 1400")->fetchAll(PDO::FETCH_ASSOC);
+        ORDER BY logged_at DESC,event_hash DESC LIMIT 1400")->fetchAll(PDO::FETCH_ASSOC);
     $groupLogMetrics=[];
     foreach($unassignedLogRows as $row){
         $groupId=(int)$row['group_id'];
