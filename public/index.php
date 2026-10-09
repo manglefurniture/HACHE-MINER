@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
+require_once dirname(__DIR__).'/app/diagnostics.php';
 miner_security_headers();
 try {
     miner_session();
@@ -76,7 +77,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -85,6 +86,7 @@ try {
         $secrets=miner_db()->query('SELECT secret_name,updated_at FROM secret_store ORDER BY secret_name')->fetchAll();
         $rates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
+        if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
         if ($page==='settings') {
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
@@ -122,10 +124,32 @@ function orgselect(): void {
 <div class="eyebrow">CENTRO DE OPERACIONES / HACHE INTERACTIVE</div>
 <h1>Minería, bajo control.</h1>
 <p class="muted">Registro independiente para HACHE e INTERACTIVE. Los datos no observados se muestran como desconocidos, nunca como cero.</p>
-<nav><a href="/">Resumen</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
+<nav><a href="/">Resumen</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
 <?php if(isset($_GET['saved'])): ?><p class="success">Configuración guardada.</p><?php endif; ?>
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
-<?php if($page==='settings'): ?>
+<?php if($page==='diagnostics'): ?>
+<section class="card"><h2>SaladCloud · Estado de lectura</h2>
+<p class="muted">Información histórica de la base de datos, actualizada por el recolector cada cinco minutos. Una lectura reciente no garantiza que haya GPU asignadas.</p>
+<div class="kpis">
+<div><strong><?= (int)$collectorDiag['summary']['fresh'] ?></strong><small>Proyectos con lectura reciente</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['stale'] ?></strong><small>Proyectos atrasados</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['groups_seen'] ?></strong><small>Grupos observados en 15 min</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['samples'] ?></strong><small>Muestras de réplicas en 15 min</small></div>
+</div>
+<div class="tablewrap"><table><thead><tr><th>Organización / proyecto</th><th>Estado</th><th>Último ciclo UTC</th><th>Grupos 15 min</th><th>Réplicas solicitadas</th><th>Muestras 15 min</th></tr></thead><tbody>
+<?php foreach($collectorDiag['targets'] as $t): ?>
+<tr><td><strong><?= miner_h($t['label']) ?></strong><small><?= miner_h($t['organization'].' / '.$t['project']) ?></small></td>
+<td><?= miner_h($t['status']==='pausado'?'Pausado':miner_collector_health_label($t['status'])) ?></td>
+<td><?= miner_h((string)($t['observed_at']??'Sin datos')) ?><small><?= miner_h((string)($t['detail']??'')) ?></small></td>
+<td><?= (int)$t['groups_seen'] ?></td><td><?= (int)$t['desired_replicas'] ?></td><td><?= (int)$t['samples'] ?></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<p class="muted">Réplicas solicitadas no equivale a réplicas activas. Muestras son observaciones históricas, no máquinas únicas. No se calcula rentabilidad sin tarifas verificadas y producción PRL observada.</p></section>
+<section class="card"><h2>Advertencias recientes (24 h)</h2>
+<?php if(!$collectorDiag['warnings']): ?><p class="muted">Sin advertencias de logs registradas durante las últimas 24 horas. No implica ausencia de fallos fuera de la cobertura.</p><?php else: ?>
+<div class="tablewrap"><table><thead><tr><th>UTC</th><th>Organización</th><th>Grupo</th><th>Mensaje depurado</th></tr></thead><tbody>
+<?php foreach($collectorDiag['warnings'] as $w): ?><tr><td><?= miner_h($w['logged_at']) ?></td><td><?= miner_h($w['organization']) ?></td><td><?= miner_h($w['group_name']) ?></td><td><?= miner_h($w['summary']) ?></td></tr><?php endforeach; ?>
+</tbody></table></div><?php endif; ?></section>
+<?php elseif($page==='settings'): ?>
 <div class="grid">
 <section class="card"><h2>Dispositivos recordados</h2>
 <p class="muted">Se mantiene el acceso durante 30 días sin almacenar tu contraseña. Cerrar sesión revoca el dispositivo actual.</p>
