@@ -254,6 +254,32 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
 <?php elseif($page==='monitor'): ?>
 <section class="card"><h2>Monitor en vivo · rendimiento por instancia</h2>
+<?php $liveHash=$monitorData['live_hashrate']; ?>
+<div class="monitor-live-summary" aria-label="Resumen de hashrate medido">
+<div class="monitor-live-main">
+<span class="monitor-live-label">TH/s observados · última medición efectiva por GPU</span>
+<div class="monitor-live-value">
+<?php if($liveHash['ths']!==null): ?>
+<strong><?= miner_h(number_format($liveHash['ths'],2,'.',',')) ?></strong><span>TH/s</span>
+<?php else: ?><strong class="monitor-live-empty">Sin lecturas recientes</strong><?php endif; ?>
+</div>
+<p class="monitor-live-coverage"><?= (int)$liveHash['measured'] ?> de <?= (int)$liveHash['ready'] ?> instancias listas con medición válida (últimos 10 min)
+<?php if($liveHash['missing']>0): ?> · <strong><?= (int)$liveHash['missing'] ?> sin datos: total parcial</strong><?php endif; ?></p>
+<?php if($liveHash['last_at']!==null): ?>
+<p class="muted monitor-live-timestamp">Lecturas UTC desde <?= miner_h($liveHash['oldest_at']) ?> hasta <?= miner_h($liveHash['last_at']) ?>. No es una medición simultánea ni una proyección.</p>
+<?php endif; ?>
+</div>
+<?php if($liveHash['organizations']): ?>
+<div class="monitor-live-orgs">
+<?php foreach($liveHash['organizations'] as $org=>$breakdown): ?>
+<div><span><?= miner_h(strtoupper($org)) ?></span>
+<strong><?= $breakdown['ths']===null?'Sin lectura':miner_h(number_format($breakdown['ths'],2,'.',',')).' TH/s' ?></strong>
+<small><?= (int)$breakdown['measured'] ?>/<?= (int)$breakdown['ready'] ?> GPU medidas</small></div>
+<?php endforeach; ?>
+</div>
+<?php endif; ?>
+</div>
+<p class="muted">Este total suma únicamente TH/s individuales verificados y recientes, sin contar dos veces la misma instancia. No incluye máquinas sin medición ni sirve para calcular beneficios; si hay algoritmos distintos, sus tasas no son económicamente comparables.</p>
 <p class="muted">Actualización automática de Salad cada cinco minutos. Aquí solo aparecen grupos reportados durante las últimas ocho horas. Los eliminados o antiguos conservan su historial privado, pero no saturan el monitor.</p>
 <div class="kpis">
 <div><strong><?= (int)$monitorData['stats']['current_groups'] ?></strong><small>Grupos recientes</small></div>
