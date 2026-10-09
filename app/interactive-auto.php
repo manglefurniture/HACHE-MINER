@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
 require_once __DIR__.'/reallocate.php';
+require_once __DIR__.'/monitor.php';
 
 /**
  * Policy applies ONLY to independently identified PRL (pearlhash) mining.
