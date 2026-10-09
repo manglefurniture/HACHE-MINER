@@ -121,22 +121,33 @@ function miner_poll_kryptex(): void {
         miner_run_record('kryptex:prl','partial','More than 100 configured wallet records; limit protects collector resources');
         $wallets=array_slice($wallets,0,100);
     }
-    // Same wallet may be labelled in multiple Salad organizations. A pool
-    // snapshot belongs to the WALLET, not to any one organization.
+    // A shared wallet is queried once even when labelled in many organizations.
+    // Rotate at most TWO distinct public wallets per 5-minute cycle to protect
+    // the 150-second Salad collector budget from slow external pool endpoints.
+    $distinct=array_values(array_unique(array_column($wallets,'address')));
+    $allowed=[];
+    for($i=0;$i<min(2,count($distinct));$i++) {
+        $start=(int)floor(time()/300)%max(1,count($distinct));
+        $allowed[$distinct[($start+$i)%count($distinct)]]=true;
+    }
     $cache=[];
     foreach ($wallets as $w) {
         $address=(string)$w['address'];
+        if (!isset($allowed[$address])) {
+            miner_run_record('kryptex:wallet:'.$w['id'],'partial','Wallet collection deferred to next cycle (bounded requests)');
+            continue;
+        }
         if (!isset($cache[$address])) {
             try {
                 if (!preg_match('/^prl1[a-z0-9]{30,150}$/D',$address)) {
                     throw new InvalidArgumentException('Invalid public PRL address');
                 }
                 $url='https://pool.kryptex.com/prl/api/v1/miner/balance/'.rawurlencode($address);
-                $balance=miner_kryptex_balance(miner_http_json($url));
+                $balance=miner_kryptex_balance(miner_http_json($url,[],6));
                 $status='ok';$note='Kryptex PRL public API: pending/confirmed verified; worker 30m H/s wallet-wide';
                 try {
                     $workers=miner_kryptex_workers(miner_http_json(
-                        'https://pool.kryptex.com/prl/api/v3/miner/workers/'.rawurlencode($address)));
+                        'https://pool.kryptex.com/prl/api/v3/miner/workers/'.rawurlencode($address),[],6));
                     if ($workers['partial']) {
                         $status='partial';$note='Kryptex balance verified; incomplete pool hashrate';
                     }
