@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/diagnostics.php';
+require_once dirname(__DIR__).'/app/pool-overview.php';
 miner_security_headers();
 try {
     miner_session();
@@ -77,7 +78,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -88,6 +89,7 @@ try {
         $rates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
         if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
+        if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='settings') {
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
@@ -197,7 +199,28 @@ function orgselect(): void {
 <section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
 <?php foreach($charges as $c):?><tr><td><?= miner_h($c['organization']) ?></td><td><?= miner_h($c['period_start'].' → '.$c['period_end']) ?></td><td><?= miner_h($c['amount_usd']) ?></td></tr><?php endforeach;?></table></section></div>
 <?php else: ?>
-<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">PRODUCCIÓN PRL</div><strong>Sin datos aún</strong><small>Pendiente / confirmado separados</small></div></div>
+<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">SALDO PRL · KRYPTEX</div>
+<strong><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['confirmed_prl']).' PRL confirmados' : 'Sin lectura completa' ?></strong>
+<small><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['pending_prl']).' PRL pendientes' : 'No se sustituyen datos desconocidos por cero' ?></small></div></div>
+<section class="card"><h2>Kryptex · seguimiento de billeteras públicas</h2>
+<p class="muted">Saldos observados del pool; no son ingresos del periodo ni fondos vendidos. Si dos organizaciones comparten dirección, se cuenta solo una vez. El hashrate pertenece al conjunto de workers por billetera y no permite atribuir GPU individuales.</p>
+<?php if($poolOverview['wallets']): ?>
+<p><strong><?= (int)$poolOverview['distinct_wallets'] ?></strong> direcciones únicas ·
+<?php if($poolOverview['workers']!==null): ?><strong><?= (int)$poolOverview['workers'] ?></strong> workers online · <?php endif; ?>
+<?php if($poolOverview['hashrate_ths']!==null): ?><strong><?= miner_h($poolOverview['hashrate_ths']) ?> TH/s</strong> promedio de 30 minutos<?php else: ?>Hashrate no completamente observado<?php endif; ?></p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Billetera</th><th>Organizaciones asociadas</th><th>Lectura UTC</th><th>Pendiente PRL</th><th>Confirmado PRL</th><th>Workers online</th><th>Hashrate TH/s</th><th>Estado de sincronización</th></tr></thead><tbody>
+<?php foreach($poolOverview['wallets'] as $wallet): ?><tr>
+<td data-label="Billetera"><?= miner_h($wallet['label'].' · …'.$wallet['suffix']) ?></td>
+<td data-label="Asociada a"><?= miner_h(implode(', ',array_map('strtoupper',$wallet['organizations']))) ?></td>
+<td data-label="Lectura UTC"><?= miner_h($wallet['observed_at']??'Pendiente') ?> <?= $wallet['fresh']?'':'(sin lectura reciente)' ?></td>
+<td data-label="Pendiente PRL"><?= miner_h($wallet['pending']??'Sin datos') ?></td>
+<td data-label="Confirmado PRL"><?= miner_h($wallet['confirmed']??'Sin datos') ?></td>
+<td data-label="Workers"><?= $wallet['workers']===null?'Sin datos':(int)$wallet['workers'] ?></td>
+<td data-label="Hashrate TH/s"><?= miner_h($wallet['hashrate_ths']??'Sin datos') ?></td>
+<td data-label="Sincronización"><?= miner_h($wallet['sync_status']??'Sin datos') ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if($poolOverview['too_many']): ?><p class="muted">La lista supera el límite de lectura de 100 registros. No se publican totales incompletos.</p><?php endif; ?>
+<?php else: ?><p class="muted">No hay billeteras PRL registradas todavía.</p><?php endif; ?></section>
 <section class="card"><h2>Grupos de SaladCloud</h2><p class="muted">Instancias únicas observadas en los últimos 10 minutos. «Listas» indica contenedores running, ready y started; no confirma minería PRL.</p><div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado grupo</th><th>Prioridad</th><th>Solicitadas</th><th>Observadas</th><th>Listas</th><th>Última lectura UTC</th></tr></thead><tbody>
 <?php foreach($groups as $g): $snap=$replicaStates[(int)$g['id']]??null; ?><tr>
 <td data-label="Organización"><?= miner_h(strtoupper($g['organization'])) ?></td><td data-label="Grupo"><?= miner_h($g['group_name']) ?></td>
