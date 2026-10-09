@@ -1,0 +1,32 @@
+name: Quality
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: sodium, pdo_mysql, mbstring, curl
+      - name: Syntax
+        run: find app public bin tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Security regression
+        run: php tests/core-regression.php
+      - name: Public artifact must not contain local secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .env
+          test ! -e .env.production
+          test ! -e config.local.php
+          ! git ls-files | grep -E '(^|/)(master\.key|id_rsa|id_ed25519|\.env|credentials\.json|ledger\.json)$'
