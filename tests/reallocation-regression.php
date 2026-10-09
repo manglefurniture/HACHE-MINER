@@ -14,12 +14,12 @@ $target=['organization'=>'hache','project_name'=>'prl-tests','group_name'=>'prl-
 $hash=miner_reallocation_fingerprint($target,$id);
 reallocate_assert(strlen($hash)===64 && ctype_xdigit($hash),'Invalid action fingerprint');
 reallocate_assert($hash!==miner_reallocation_fingerprint($target,'another-id'),'Different node must differ');
-reallocate_assert($hash!==miner_reallocation_fingerprint($target+['organization'=>'interactive'],'another-id'),'Different organization must differ');
+reallocate_assert($hash!==miner_reallocation_fingerprint(array_merge($target,['organization'=>'interactive']),$id),'Different organization must differ');
 $live=['instance_id'=>$id,'state'=>'running','ready'=>true,'started'=>true];
 reallocate_assert(miner_reallocation_live_matches($live,$id),'Valid Salad instance must pass');
 reallocate_assert(miner_reallocation_live_matches(['id'=>$id,'state'=>['status'=>'running'],'ready'=>true,'started'=>true],$id),'Legacy id fallback must pass');
 reallocate_assert(!miner_reallocation_live_matches($live,'another-id'),'ID mismatch must fail');
-reallocate_assert(!miner_reallocation_live_matches($live+['instance_id'=>'other'],'other'),'No false alternative match');
+reallocate_assert(!miner_reallocation_live_matches(array_merge($live,['instance_id'=>'other']),$id),'No false alternative match');
 reallocate_assert(!miner_reallocation_live_matches(['instance_id'=>$id,'state'=>'allocating','ready'=>true,'started'=>true],$id),'Allocating cannot be reallocated');
 reallocate_assert(!miner_reallocation_live_matches(['instance_id'=>$id,'state'=>'running','ready'=>false,'started'=>true],$id),'Unready cannot be reallocated');
 reallocate_assert(!miner_reallocation_live_matches(['instance_id'=>$id,'state'=>'running','ready'=>true,'started'=>false],$id),'Not started cannot be reallocated');
