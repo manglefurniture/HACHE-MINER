@@ -40,6 +40,41 @@ function miner_reallocation_target(int $groupId,string $instanceId): array {
     }
     return $group+['instance_id'=>$instanceId,'instance_observed_at'=>$observed['observed_at']];
 }
+/**
+ * The manual cooldown is scoped to the EXACT instance. No hashrate threshold
+ * applies: the administrator can request another node even when healthy.
+ */
+function miner_reallocation_cooldown_seconds(array $group,string $instanceId, ?int $now=null): int {
+    $fingerprint=miner_reallocation_fingerprint($group,$instanceId);
+    $st=miner_db()->prepare("SELECT MAX(occurred_at) FROM audit_events
+      WHERE action_name='manual_reallocate_intent' AND detail=?
+      AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE");
+    $st->execute([$fingerprint]);
+    $date=$st->fetchColumn();
+    if (!is_string($date) || $date==='') return 0;
+    $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$date,new DateTimeZone('UTC'));
+    if (!$parsed) return 900;
+    $elapsed=($now??time())-$parsed->getTimestamp();
+    return max(0,900-max(0,$elapsed));
+}
+/** One read for the entire monitor instead of an SQL query per displayed GPU. */
+function miner_reallocation_cooldown_index(?int $now=null): array {
+    $db=miner_db();
+    $rows=$db->query("SELECT detail,MAX(occurred_at) AS at
+        FROM audit_events
+        WHERE action_name='manual_reallocate_intent'
+          AND occurred_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE
+        GROUP BY detail LIMIT 1000")->fetchAll(PDO::FETCH_ASSOC);
+    $out=[];
+    foreach($rows as $item) {
+        if (!preg_match('/^[a-f0-9]{64}$/D',(string)$item['detail']))continue;
+        $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$item['at'],new DateTimeZone('UTC'));
+        if (!$date)continue;
+        $seconds=max(0,900-max(0,($now??time())-$date->getTimestamp()));
+        if($seconds>0)$out[(string)$item['detail']]=$seconds;
+    }
+    return $out;
+}
 /** Rate-limited password confirmation, independent of the remembered-device cookie. */
 function miner_reallocation_password(int $adminId,string $password,string $ip): bool {
     if($adminId<1 || $password==='' || strlen($password)>1024) return false;
