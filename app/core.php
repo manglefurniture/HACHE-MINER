@@ -233,6 +233,12 @@ function miner_salad_targets(bool $enabledOnly=true): array {
     $sql.=' ORDER BY organization_slug,project_slug';
     return miner_db()->query($sql)->fetchAll();
 }
+function miner_known_salad_org(string $org): bool {
+    if (!miner_valid_salad_slug($org)) return false;
+    $st=miner_db()->prepare('SELECT 1 FROM salad_targets WHERE organization_slug=? LIMIT 1');
+    $st->execute([$org]);
+    return (bool)$st->fetchColumn();
+}
 function miner_salad_add_target(string $org,string $project,string $label): void {
     $org=strtolower(trim($org));$project=strtolower(trim($project));$label=trim($label);
     if (!miner_valid_salad_slug($org) || !miner_valid_salad_slug($project) || $label==='' || mb_strlen($label)>100)
