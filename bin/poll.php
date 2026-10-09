@@ -61,8 +61,8 @@ function miner_log_save(int $groupId,array $items): void {
 function miner_instance_save(int $groupId,array $instance,string $now,?string $rate): void {
     $instanceId=(string)($instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
-    $state=substr((string)($instance['state']??'unknown'),0,64);
-    $ready=!empty($instance['ready']);$started=!empty($instance['started']);
+    $state=miner_instance_state($instance);
+    $ready=($instance['ready']??null)===true;$started=($instance['started']??null)===true;
     $db=miner_db();
     $prev=$db->prepare('SELECT observed_at,ready,started FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
@@ -84,6 +84,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
     if(isset($groups['next_cursor']) && $groups['next_cursor'])throw new RuntimeException('Paginación pendiente: no se registra cobertura parcial como completa.');
     $now=gmdate('Y-m-d H:i:s');
     $recorded=0;
+    $failed=0;
     foreach($items as $group){
         if(!is_array($group))continue;
         $g=miner_group_upsert($org,$project,$group);
@@ -103,10 +104,12 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             $logs=miner_logs($org,$project,$g['name'],$key);
             miner_log_save($g['id'],$logs);
         } catch(Throwable $e) {
+            $failed++;
             miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',get_class($e).' during collection');
         }
     }
-    miner_run_record('salad:'.$org.'/'.$project,'ok','group snapshots: '.$recorded.'; instance identity maintained');
+    miner_run_record('salad:'.$org.'/'.$project,$failed>0?'partial':'ok',
+      'group snapshots: '.$recorded.'; partial groups: '.$failed.'; instance identity maintained');
 }
 function miner_poll_kryptex(): void {
     $wallets=miner_db()->query("SELECT id,address FROM wallets WHERE coin='PRL' ORDER BY id")->fetchAll();
