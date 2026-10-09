@@ -127,10 +127,27 @@ function miner_http_json(string $url,array $headers=[]): array {
     return $out;
 }
 function miner_scrub_log(string $line): string {
-    // Never persist full wallet identifiers or credentials in imported log text.
+    // Strip ANSI CSI / SGR escape sequences BEFORE generic control filtering.
+    // Older imported records already lost the ESC byte; remove orphaned SGR
+    // fragments too, without deleting timestamps like [2026-10-09 ...].
+    $line=preg_replace('/\x1B\[[0-?]*[ -\/]*[@-~]/', '', $line) ?? '';
+    $line=preg_replace('/\[(?:0|1|2|3[0-9]|4[0-9]|9[0-7])(?:;(?:0|1|2|3[0-9]|4[0-9]|9[0-7]))*m/', '', $line) ?? '';
+    // Never persist or redisplay wallet identifiers and credentials in logs.
     $line=preg_replace('/prl1[a-z0-9]{20,}/i','[wallet]', $line) ?? '';
     $line=preg_replace('/(?i)(api[_-]?key|authorization|password|token|secret)\s*[:=]\s*[^\s,;]+/','[redacted]',$line) ?? '';
     return mb_substr(trim(preg_replace('/[\x00-\x1F\x7F]+/',' ', $line)??''),0,800);
+}
+/** Salad's instance state is an object {status: "..."}; older fixtures may use strings. */
+function miner_instance_state(array $instance): string {
+    $raw=$instance['state']??null;
+    $state=is_array($raw)?($raw['status']??null):$raw;
+    if (!is_string($state) || !preg_match('/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/D',$state)) return 'unknown';
+    return strtolower($state);
+}
+/** Container ready/started is not evidence of accepted mining shares. */
+function miner_instance_ready(array $instance): bool {
+    return ($instance['ready']??null)===true && ($instance['started']??null)===true
+        && miner_instance_state($instance)==='running';
 }
 
 
