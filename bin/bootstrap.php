@@ -22,8 +22,11 @@ if($argv[1]==='make-key') {
 $username=getenv('MINER_ADMIN_USER')?:'admin';
 if(!preg_match('/^[a-zA-Z0-9_-]{3,64}$/D',$username)){fwrite(STDERR,"Nombre de usuario inválido.\n");exit(2);}
 if(!defined('STDIN') || !stream_isatty(STDIN)){fwrite(STDERR,"Ejecutar desde consola interactiva.\n");exit(2);}
-fwrite(STDOUT,"Contraseña nueva (la entrada puede verse en algunas consolas; usa terminal privado): ");
-$password=trim((string)fgets(STDIN),"\r\n");
+fwrite(STDOUT,"Contraseña nueva (entrada oculta): ");
+if (PHP_OS_FAMILY !== 'Linux') {fwrite(STDERR,"Usar consola Linux privada.\n");exit(2);}
+system('stty -echo 2>/dev/null');
+try {$password=trim((string)fgets(STDIN),"\r\n");}
+finally {system('stty echo 2>/dev/null');fwrite(STDOUT,"\n");}
 if(strlen($password)<16 || strlen($password)>512){fwrite(STDERR,"Contraseña entre 16 y 512 caracteres.\n");exit(2);}
 if((int)miner_db()->query('SELECT COUNT(*) FROM administrators')->fetchColumn()!==0) {
     fwrite(STDERR,"Administrador ya existe. Crear/restablecer vía procedimiento auditado.\n");exit(2);
