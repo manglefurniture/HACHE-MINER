@@ -15,6 +15,8 @@ $collector = file_get_contents($root.'/deploy/enable-collector-timer.sh');
 $importer = file_get_contents($root.'/bin/import-shared-salad-key.php');
 $rotator = file_get_contents($root.'/bin/rotate-master-key.php');
 $rotateWrap = file_get_contents($root.'/deploy/rotate-master-key.sh');
+$poolOverview = file_get_contents($root.'/app/pool-overview.php');
+$dashboard = file_get_contents($root.'/public/index.php');
 $upgrade = file_get_contents($root.'/deploy/upgrade-miner-vhost.sh');
 $dashboard = file_get_contents($root.'/public/index.php');
 $css = file_get_contents($root.'/public/style.css');
@@ -67,4 +69,9 @@ assert_deploy(str_contains($css, '@media(max-width:720px)') && str_contains($css
 assert_deploy(str_contains($diagnostics, 'miner_recent_group_statuses()'), 'Only recent distinct instances may be counted as ready');
 assert_deploy(str_contains($diagnostics, "state']==='running'"), 'Ready count must require running state');
 assert_deploy(str_contains($poll, '$failed>0?'), 'Partial instance/log failures must not be reported as successful full collection');
+assert_deploy(str_contains($poolOverview, "SELECT id,organization,label,address FROM wallets"), 'Overview must load registered PRL wallet identities');
+assert_deploy(str_contains($poolOverview, '$byAddress[$addr]'), 'Wallet balances must be deduplicated by address');
+assert_deploy(str_contains($poolOverview, "'all_balances_fresh'"), 'Incomplete recent coverage must not be shown as complete');
+assert_deploy(str_contains($dashboard, "miner_pool_overview()"), 'Dashboard must display actual pool observations');
+assert_deploy(!str_contains($poolOverview,'miner_get_secret('), 'Wallet overview must not read private API keys');
 echo "PASS deploy-isolation-regression\n";
