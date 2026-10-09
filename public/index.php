@@ -3,6 +3,8 @@ declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/diagnostics.php';
 require_once dirname(__DIR__).'/app/pool-overview.php';
+require_once dirname(__DIR__).'/app/monitor.php';
+require_once dirname(__DIR__).'/app/finances.php';
 miner_security_headers();
 try {
     miner_session();
@@ -78,7 +80,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -89,6 +91,8 @@ try {
         $rates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
         if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
+        if ($page==='monitor') $monitorData=miner_monitor_inventory();
+        if ($page==='finance') $financeData=miner_finance_overview();
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='settings') {
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
@@ -127,10 +131,67 @@ function orgselect(): void {
 <div class="eyebrow">CENTRO DE OPERACIONES / HACHE INTERACTIVE</div>
 <h1>Minería, bajo control.</h1>
 <p class="muted">Registro independiente para HACHE e INTERACTIVE. Los datos no observados se muestran como desconocidos, nunca como cero.</p>
-<nav><a href="/">Resumen</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
+<nav><a href="/">Resumen</a><a href="/?page=monitor">Monitor GPU</a><a href="/?page=finance">Finanzas</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
 <?php if(isset($_GET['saved'])): ?><p class="success">Configuración guardada.</p><?php endif; ?>
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
-<?php if($page==='diagnostics'): ?>
+<?php if($page==='monitor'): ?>
+<section class="card"><h2>Monitor dinámico de SaladCloud</h2>
+<p class="muted">Incluye todos los grupos conocidos desde que empezó la recolección, por organización y proyecto registrados. La API se consulta cada cinco minutos en segundo plano. Una réplica lista no demuestra shares aceptados. El monitor original de alertas y reasignación continúa separado.</p>
+<div class="kpis">
+<div><strong><?= (int)$monitorData['stats']['current_groups'] ?></strong><small>Grupos con lectura reciente</small></div>
+<div><strong><?= (int)$monitorData['stats']['desired'] ?></strong><small>Réplicas solicitadas</small></div>
+<div><strong><?= (int)$monitorData['stats']['observed'] ?></strong><small>Instancias observadas 15 min</small></div>
+<div><strong><?= (int)$monitorData['stats']['ready'] ?></strong><small>Contenedores listos</small></div></div>
+<p class="muted">Pendientes respecto a solicitadas: <?= (int)$monitorData['stats']['waiting'] ?>. Grupos solo históricos: <?= (int)$monitorData['stats']['historical'] ?>. Los grupos no consultados recientemente se mantienen como históricos, no se muestran falsamente como detenidos.</p>
+<?php if (!$monitorData['groups']): ?><p class="muted">No hay registros. Revisa organizaciones y proyectos en Configuración.</p><?php endif; ?>
+<?php foreach($monitorData['targets'] as $t):
+    $org=$t['organization_slug'];$project=$t['project_slug'];$count=0;
+    foreach($monitorData['groups'] as $g) if($g['organization']===$org&&$g['project_name']===$project) $count++;
+?>
+<h3><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos conocidos</small></h3>
+<?php foreach($monitorData['groups'] as $g): if($g['organization']!==$org||$g['project_name']!==$project)continue; ?>
+<details class="monitor-group">
+<summary>
+<strong><?= miner_h($g['group_name']) ?></strong>
+<span><?= miner_h(miner_monitor_status_label($g['classification'])) ?></span>
+<small>Solicitadas <?= (int)$g['desired_replicas'] ?> · observadas <?= (int)$g['observed'] ?> · listas <?= (int)$g['ready'] ?></small>
+</summary>
+<p class="muted">Estado del grupo: <?= miner_h($g['state']) ?> · prioridad: <?= miner_h($g['priority']??'desconocida') ?> · última lectura UTC: <?= miner_h($g['last_seen_at']) ?></p>
+<?php if($g['metric']!==null): ?>
+<p>Registro de un solo grupo/instancia: <strong><?= miner_h((string)$g['metric']['hashrate_ths']) ?> TH/s</strong> ·
+<?= miner_h($g['metric']['gpu']) ?> ·
+<?= miner_h((string)$g['metric']['watts']) ?> W ·
+<?= (int)$g['metric']['temp_c'] ?> °C · ventilador <?= (int)$g['metric']['fan'] ?>%.
+<small>Leído en un log a las <?= miner_h($g['metric']['at']) ?> UTC. No atribuido a otra réplica ni usado para calcular ingresos.</small></p>
+<?php endif; ?>
+<?php if($g['average_15m']!==null): ?><p class="muted">Media de 15 minutos informada en log: <?= miner_h((string)$g['average_15m']['ths']) ?> TH/s · <?= miner_h($g['average_15m']['at']) ?> UTC.</p><?php endif; ?>
+<?php if($g['warnings']>0): ?><p class="muted"><?= (int)$g['warnings'] ?> advertencias registradas en los últimos 15 minutos.</p><?php endif; ?>
+<?php if(!$g['recent']): ?><p class="muted">Grupo histórico: no hay lectura reciente que permita conocer su estado actual.</p>
+<?php elseif(!$g['instances']): ?><p class="muted">No hay identificadores de instancias observados recientemente. Puede estar asignando, detenido o sin disponibilidad.</p>
+<?php else: ?><div class="tablewrap mobile-stack"><table><thead><tr><th>ID de instancia</th><th>Estado</th><th>Contenedor listo</th><th>Observado UTC</th></tr></thead><tbody>
+<?php foreach($g['instances'] as $node): ?><tr><td data-label="Instancia"><code><?= miner_h($node['id']) ?></code></td>
+<td data-label="Estado"><?= miner_h($node['state']) ?></td>
+<td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
+<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td></tr><?php endforeach; ?>
+</tbody></table></div><?php endif; ?>
+</details>
+<?php endforeach;endforeach; ?>
+</section>
+<?php elseif($page==='finance'): ?>
+<section class="card"><h2>Finanzas · cobertura de gastos</h2>
+<p class="muted">Los cargos facturados se separan de las estimaciones, que se basan exclusivamente en muestras consecutivas de instancias listas y tarifas registradas. Ninguna cifra estimada sustituye la factura de Salad.</p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Cargos conciliados históricos (USD)</th><th>Comprobantes</th><th>Estimación observada 24 h (USD)</th><th>Muestras con tarifa</th><th>Muestras sin estimación</th></tr></thead><tbody>
+<?php foreach($financeData as $fin): ?>
+<tr><td data-label="Organización"><?= miner_h(strtoupper($fin['org'])) ?></td>
+<td data-label="Cargos verificados"><?= miner_h($fin['charges_usd']??'Sin conciliar') ?></td>
+<td data-label="Comprobantes"><?= (int)$fin['charge_count'] ?></td>
+<td data-label="Costos observados 24 h"><?= miner_h($fin['estimated_24h_usd']??'Sin tarifas verificadas') ?></td>
+<td data-label="Con tarifa"><?= (int)$fin['priced_samples'] ?></td>
+<td data-label="Sin estimación"><?= (int)$fin['unpriced_samples'] ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<p class="muted">Pendiente: integrar cargos reales de Salad y ventas netas de PRL. Los saldos confirmados de Kryptex son activos en el pool, no ingresos realizados. Una billetera compartida no puede atribuirse a una sola organización sin identificadores de worker.</p>
+</section>
+<?php elseif($page==='diagnostics'): ?>
 <section class="card"><h2>SaladCloud · Estado de lectura</h2>
 <p class="muted">Información histórica de la base de datos, actualizada por el recolector cada cinco minutos. Una lectura reciente no garantiza que haya GPU asignadas.</p>
 <div class="kpis">

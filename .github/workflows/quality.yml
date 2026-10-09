@@ -27,6 +27,7 @@ jobs:
           php tests/core-regression.php
           php tests/kryptex-regression.php
           php tests/pool-observation-regression.php
+          php tests/monitor-regression.php
           php tests/remember-regression.php
           php tests/deploy-regression.php
       - name: Public artifact must not contain local secrets
