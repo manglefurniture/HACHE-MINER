@@ -75,9 +75,7 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,estimated_cost_usd) VALUES (?,?,?,?,?,?,?)');
     $st->execute([$groupId,$instanceId,$now,$state,(int)$ready,(int)$started,$cost]);
 }
-function miner_poll_salad(string $org,string $project): void {
-    $key=miner_get_secret('salad:'.$org.':api-key');
-    if(!$key){miner_run_record('salad:'.$org,'missing','API key not configured');return;}
+function miner_poll_salad(string $org,string $project,string $key): void {
     $base='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/projects/'.rawurlencode($project).'/containers';
     $headers=['Salad-Api-Key: '.$key,'Accept: application/json'];
     $groups=miner_http_json($base,$headers);
@@ -105,10 +103,10 @@ function miner_poll_salad(string $org,string $project): void {
             $logs=miner_logs($org,$project,$g['name'],$key);
             miner_log_save($g['id'],$logs);
         } catch(Throwable $e) {
-            miner_run_record('salad:'.$org.'/'.$g['name'],'partial',get_class($e).' during collection');
+            miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',get_class($e).' during collection');
         }
     }
-    miner_run_record('salad:'.$org,'ok','group snapshots: '.$recorded.'; instance identity maintained');
+    miner_run_record('salad:'.$org.'/'.$project,'ok','group snapshots: '.$recorded.'; instance identity maintained');
 }
 function miner_poll_kryptex(): void {
     $wallets=miner_db()->query("SELECT id,address FROM wallets WHERE coin='PRL' ORDER BY id")->fetchAll();
@@ -128,9 +126,17 @@ function miner_poll_kryptex(): void {
 }
 try {
     miner_db();
-    foreach(MINER_ORGANIZATIONS as $org=>$project) {
-        try {miner_poll_salad($org,$project);}
-        catch(Throwable $e){miner_run_record('salad:'.$org,'error',get_class($e).' during organization polling');}
+    $targets=miner_salad_targets();
+    $key=miner_shared_salad_api_key();
+    if (!$key) {
+        miner_run_record('salad:shared','missing','Shared API key not configured');
+    } else {
+        foreach($targets as $target) {
+            $org=(string)$target['organization_slug'];
+            $project=(string)$target['project_slug'];
+            try {miner_poll_salad($org,$project,$key);}
+            catch(Throwable $e){miner_run_record('salad:'.$org.'/'.$project,'error',get_class($e).' during target polling');}
+        }
     }
     miner_poll_kryptex();
     echo "POLL_COMPLETE\n";

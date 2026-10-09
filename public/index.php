@@ -32,26 +32,37 @@ try {
                     miner_revoke_all_devices($uid);
                 } elseif ($action==='secret') {
                     $name=(string)($_POST['secret_name']??'');
-                    if (!in_array($name,['salad:hache:api-key','salad:interactive:api-key'],true)) throw new InvalidArgumentException('Secreto no permitido.');
+                    if ($name!=='salad:api-key') throw new InvalidArgumentException('Secreto no permitido.');
                     miner_put_secret($name,(string)($_POST['secret_value']??''));
                     miner_audit($uid,'secret_updated',$name);
+                 } elseif ($action==='salad_target_add') {
+                    $org=(string)($_POST['org_slug']??'');
+                    $project=(string)($_POST['project_slug']??'');
+                    miner_salad_add_target($org,$project,(string)($_POST['target_label']??''));
+                    miner_audit($uid,'salad_target_added',strtolower(trim($org)).'/'.strtolower(trim($project)));
+                } elseif ($action==='salad_target_state') {
+                    $id=filter_var($_POST['target_id']??null,FILTER_VALIDATE_INT);
+                    $enabled=(string)($_POST['target_enabled']??'')==='1';
+                    if(!$id) throw new InvalidArgumentException('Target invalid');
+                    miner_salad_set_enabled((int)$id,$enabled);
+                    miner_audit($uid,'salad_target_enabled',($enabled?'on':'off').':'.$id);
                 } elseif ($action==='wallet') {
                     $org=(string)($_POST['organization']??'');$address=trim((string)($_POST['address']??''));
                     $label=trim((string)($_POST['label']??''));
-                    if (!isset(MINER_ORGANIZATIONS[$org]) || !preg_match('/^prl1[a-z0-9]{30,150}$/D',$address) || strlen($label)>80 || $label==='') throw new InvalidArgumentException('Datos de dirección PRL inválidos.');
+                    if (!miner_known_salad_org($org) || !preg_match('/^prl1[a-z0-9]{30,150}$/D',$address) || strlen($label)>80 || $label==='') throw new InvalidArgumentException('Datos de dirección PRL inválidos.');
                     $st=miner_db()->prepare('INSERT IGNORE INTO wallets (organization,coin,label,address) VALUES (?,?,?,?)');$st->execute([$org,'PRL',$label,$address]);
                     miner_audit($uid,'wallet_added',$org);
                 } elseif ($action==='rate') {
                     $org=(string)($_POST['organization']??'');$gpu=trim((string)($_POST['gpu_class']??''));
                     $priority=(string)($_POST['priority']??'');$rate=miner_finite_decimal($_POST['usd_per_hour']??null);
-                    if (!isset(MINER_ORGANIZATIONS[$org]) || !in_array($priority,['low','medium','high'],true) || strlen($gpu)>120 || $gpu==='' || $rate===null || (float)$rate>100) throw new InvalidArgumentException('Tarifa inválida.');
+                    if (!miner_known_salad_org($org) || !in_array($priority,['low','medium','high'],true) || strlen($gpu)>120 || $gpu==='' || $rate===null || (float)$rate>100) throw new InvalidArgumentException('Tarifa inválida.');
                     $st=miner_db()->prepare('INSERT INTO gpu_rates (organization,gpu_class,priority,usd_per_hour) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE usd_per_hour=VALUES(usd_per_hour),effective_at=CURRENT_TIMESTAMP');
                     $st->execute([$org,$gpu,$priority,$rate]);
                     miner_audit($uid,'gpu_rate_updated',$org);
                 } elseif ($action==='charge') {
                     $org=(string)($_POST['organization']??'');$amount=miner_finite_decimal($_POST['amount_usd']??null,4);
                     $start=(string)($_POST['period_start']??'');$end=(string)($_POST['period_end']??'');$reference=trim((string)($_POST['source_reference']??''));
-                    if (!isset(MINER_ORGANIZATIONS[$org]) || $amount===null || strlen($reference)>200 || $reference==='' || !preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/D',$start) || !preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/D',$end) || $start>=$end) throw new InvalidArgumentException('Cargo inválido. Usar fechas UTC.');
+                    if (!miner_known_salad_org($org) || $amount===null || strlen($reference)>200 || $reference==='' || !preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/D',$start) || !preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/D',$end) || $start>=$end) throw new InvalidArgumentException('Cargo inválido. Usar fechas UTC.');
                     $st=miner_db()->prepare('INSERT INTO reconciled_charges (organization,period_start,period_end,amount_usd,source_reference) VALUES (?,?,?,?,?)');
                     $st->execute([$org,$start,$end,$amount,$reference]);
                     miner_audit($uid,'actual_charge_recorded',$org);
@@ -65,9 +76,9 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $orgs=MINER_ORGANIZATIONS;
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];
     if ($page!=='login') {
+        $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
         $wallets=miner_db()->query('SELECT organization,coin,label,address FROM wallets ORDER BY organization,label')->fetchAll();
         $runs=miner_db()->query('SELECT source_name,observed_at,status,detail FROM sync_runs ORDER BY id DESC LIMIT 18')->fetchAll();
@@ -86,7 +97,12 @@ try {
 function field(string $label,string $name,string $type='text',string $placeholder=''): void {
     echo '<label>'.miner_h($label).'<input required name="'.miner_h($name).'" type="'.miner_h($type).'" placeholder="'.miner_h($placeholder).'" '.($type==='number'?'step="any" min="0"':'maxlength="200"').' autocomplete="off"></label>';
 }
-function orgselect(): void {echo '<select name="organization"><option value="hache">HACHE</option><option value="interactive">INTERACTIVE</option></select>';}
+function orgselect(): void {
+    $rows=miner_db()->query('SELECT DISTINCT organization_slug FROM salad_targets ORDER BY organization_slug')->fetchAll(PDO::FETCH_COLUMN);
+    echo '<select name="organization" aria-label="Organización Salad">';
+    foreach ($rows as $org) echo '<option value="'.miner_h((string)$org).'">'.miner_h(strtoupper((string)$org)).'</option>';
+    echo '</select>';
+}
 ?><!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HACHE-MINER · Control privado</title><link rel="stylesheet" href="/style.css"></head>
@@ -117,12 +133,26 @@ function orgselect(): void {echo '<select name="organization"><option value="hac
 <?php foreach($trustedDevices as $t): ?><p><?= miner_h($t['device_label']) ?> · <small>Vence <?= miner_h($t['expires_at']) ?> UTC</small></p><?php endforeach; ?>
 <?php if ($trustedDevices): ?><form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><button name="action" value="revoke_devices">Revocar todos los dispositivos</button></form><?php endif; ?>
 </section>
-<section class="card"><h2>Claves API cifradas</h2><p class="muted">Los valores nunca se muestran después de guardarlos.</p>
-<?php foreach(['salad:hache:api-key','salad:interactive:api-key'] as $n): ?>
-<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><input type="hidden" name="secret_name" value="<?= miner_h($n) ?>">
-<strong><?= miner_h($n) ?></strong><?php field('Nueva clave','secret_value','password','Solo para sustituirla'); ?><button name="action" value="secret">Guardar cifrada</button></form>
+<section class="card"><h2>Una clave API de Salad</h2><p class="muted">Esta clave compartida permite consultar todas las organizaciones autorizadas. Se guarda cifrada y nunca se muestra de nuevo.</p>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><input type="hidden" name="secret_name" value="salad:api-key">
+<?php field('Clave API compartida','secret_value','password','Solo para configurar o sustituir'); ?>
+<button name="action" value="secret">Guardar clave cifrada</button></form>
+<?php foreach($secrets as $s): ?><p class="muted"><?= $s['secret_name']==='salad:api-key'?'Clave compartida configurada': 'Clave heredada existente' ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?></section>
+<section class="card"><h2>Organizaciones y proyectos Salad</h2>
+<p class="muted">Agrega otra organización y el proyecto que desees supervisar, sin crear una nueva clave API. Desactivar detiene las lecturas futuras sin borrar el historial.</p>
+<?php foreach ($targets as $t): ?>
+<div class="salad-target"><strong><?= miner_h($t['label']) ?></strong>
+<small><?= miner_h($t['organization_slug'].' / '.$t['project_slug']) ?> · <?= $t['enabled']?'Activo':'Pausado' ?></small>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
+<input type="hidden" name="target_id" value="<?= (int)$t['id'] ?>">
+<input type="hidden" name="target_enabled" value="<?= $t['enabled']?'0':'1' ?>">
+<button class="ghost" name="action" value="salad_target_state"><?= $t['enabled']?'Pausar':'Activar' ?></button></form></div>
 <?php endforeach; ?>
-<?php foreach($secrets as $s): ?><p class="muted">Configurada: <?= miner_h($s['secret_name']) ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?></section>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
+<?php field('Nombre visible','target_label','text','Nueva organización'); ?>
+<?php field('Identificador de organización','org_slug','text','ejemplo-tercera'); ?>
+<?php field('Proyecto','project_slug','text','default'); ?>
+<button name="action" value="salad_target_add">Agregar organización/proyecto</button></form></section>
 <section class="card"><h2>Billetera pública PRL</h2><p class="muted">Solo direcciones para seguimiento. No almacenar semillas ni claves privadas.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Etiqueta','label');field('Dirección PRL','address');?><button name="action" value="wallet">Agregar dirección</button></form>
 <?php foreach($wallets as $w): ?><p><?= miner_h($w['organization'].' · '.$w['label']) ?><small> <?= miner_h(substr($w['address'],0,12)) ?>…</small></p><?php endforeach; ?></section>
@@ -139,7 +169,7 @@ function orgselect(): void {echo '<select name="organization"><option value="hac
 <section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
 <?php foreach($charges as $c):?><tr><td><?= miner_h($c['organization']) ?></td><td><?= miner_h($c['period_start'].' → '.$c['period_end']) ?></td><td><?= miner_h($c['amount_usd']) ?></td></tr><?php endforeach;?></table></section></div>
 <?php else: ?>
-<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong>2</strong><small>HACHE · INTERACTIVE</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">PRODUCCIÓN PRL</div><strong>Sin datos aún</strong><small>Pendiente / confirmado separados</small></div></div>
+<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">PRODUCCIÓN PRL</div><strong>Sin datos aún</strong><small>Pendiente / confirmado separados</small></div></div>
 <section class="card"><h2>Grupos de SaladCloud</h2><div class="tablewrap"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado</th><th>Prioridad</th><th>Réplicas</th><th>Última lectura UTC</th></tr></thead><tbody>
 <?php foreach($groups as $g):?><tr><td><?= miner_h(strtoupper($g['organization'])) ?></td><td><?= miner_h($g['group_name']) ?></td><td><?= miner_h($g['state']) ?></td><td><?= miner_h((string)$g['priority']) ?></td><td><?= (int)$g['desired_replicas'] ?></td><td><?= miner_h($g['last_seen_at']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$groups):?><p class="muted">Aún no hay historial. Configura las claves de Salad y activa el recolector.</p><?php endif; ?></section>
 <?php endif; ?>
