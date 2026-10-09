@@ -13,6 +13,8 @@ $activate = file_get_contents($root.'/deploy/activate.sh');
 $installer = file_get_contents($root.'/deploy/install-https-web.sh');
 $collector = file_get_contents($root.'/deploy/enable-collector-timer.sh');
 $importer = file_get_contents($root.'/bin/import-shared-salad-key.php');
+$rotator = file_get_contents($root.'/bin/rotate-master-key.php');
+$rotateWrap = file_get_contents($root.'/deploy/rotate-master-key.sh');
 $upgrade = file_get_contents($root.'/deploy/upgrade-miner-vhost.sh');
 assert_deploy(str_contains($nginx, 'root /srv/hache-miner/current/public'), 'Webroot must be public');
 assert_deploy(str_contains($nginx, 'location ~ \\.php$ { return 404; }'), 'Other PHP scripts must not be served');
@@ -51,4 +53,9 @@ assert_deploy(str_contains($importer, 'posix_geteuid() !== 0'), 'Salad import mu
 assert_deploy(str_contains($importer, "'/etc/hache-salad-monitor.env'"), 'Source must be the existing private legacy env file');
 assert_deploy(str_contains($importer, "miner_put_secret('salad:api-key'"), 'Importer must store the shared key encrypted');
 assert_deploy(str_contains($importer, 'SALAD_SHARED_KEY_ALREADY_CONFIGURED'), 'Importer must not rotate an existing shared key');
+assert_deploy(str_contains($rotator, 'SELECT id,ciphertext,nonce FROM secret_store ORDER BY id FOR UPDATE'), 'Rotation locks existing encrypted records');
+assert_deploy(str_contains($rotator, 'miner_seal($plain,$newKey)'), 'Rotation must re-encrypt every record');
+assert_deploy(str_contains($rotator, 'if ($db instanceof PDO && $db->inTransaction()) $db->rollBack();'), 'Rotation must rollback SQL on failure');
+assert_deploy(str_contains($rotateWrap, 'mariadb-dump --single-transaction'), 'Rotation must create private SQL backup');
+assert_deploy(str_contains($rotateWrap, 'systemctl stop "$timer"'), 'Rotation must pause only miner timer');
 echo "PASS deploy-isolation-regression\n";
