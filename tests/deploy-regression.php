@@ -101,4 +101,10 @@ assert_deploy(str_contains($dashboard, "manual_reallocate_success") && str_conta
 assert_deploy(!str_contains($dashboard, "isset(\$_GET['reallocated'])"), 'User-controlled GET must never forge success');
 assert_deploy(str_contains($dashboard, "miner_reallocation_cooldown_seconds("), 'Confirmation screen must check cooldown');
 assert_deploy(str_contains($dashboard, "ceil(\$cooldown/60)"), 'Monitor must label the manual cooldown per instance');
+assert_deploy(str_contains($dashboard, "hash_file('sha256',__DIR__.'/style.css')"), 'CSS href must change when deployed contents change; Cloudflare caches styles for hours');
+assert_deploy(str_contains($dashboard, 'class="monitor-entry"'), 'Each group needs a visible card wrapper');
+assert_deploy(str_contains($dashboard, 'class="monitor-entry-actions"'), 'Manual per-instance actions must remain visible outside the collapsed details');
+assert_deploy(preg_match('/<\\/details>\\s*<div class="monitor-entry-actions">/', $dashboard)===1, 'The action row cannot be hidden by a collapsed details tag');
+assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'Cooldown remains scoped to exact instance');
+assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-instance-shortcut'), 'Card and action styles must exist');
 echo "PASS deploy-isolation-regression\n";
