@@ -55,10 +55,28 @@ install -o root -g root -m 0644 "$release/deploy/php-fpm-hache-miner.conf.exampl
 installed_pool=1
 /usr/sbin/php-fpm8.4 -t
 systemctl reload php8.4-fpm
-[[ -S /run/php/php8.4-fpm-hache-miner.sock ]] || {
-  echo "ERROR: miner php-fpm socket unavailable" >&2
+# systemctl reload returns when the reload signal is delivered, not when the
+# PHP-FPM master has parsed new pools and bound new listening sockets.
+# Give the new pool a bounded warm-up interval; protect existing services
+# and trigger the rollback if the socket never appears.
+pool_socket=/run/php/php8.4-fpm-hache-miner.sock
+pool_ready=0
+for attempt in $(seq 1 30); do
+  if [[ -S "$pool_socket" ]]; then
+    pool_ready=1
+    break
+  fi
+  if ! systemctl is-active --quiet php8.4-fpm; then
+    echo "ERROR: shared PHP-FPM service became unavailable during reload" >&2
+    exit 2
+  fi
+  sleep 1
+done
+if [[ "$pool_ready" -ne 1 ]]; then
+  echo "ERROR: miner php-fpm socket missing after 30-second wait" >&2
   exit 2
-}
+fi
+echo 'MINER_FPM_SOCKET_READY'
 
 install -d -o root -g root -m 0755 "$challenge"
 # Temporary ACME-only HTTP site. HTTPS is not enabled before a valid cert exists.
