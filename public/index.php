@@ -172,7 +172,7 @@ function orgselect(): void {
 }
 ?><!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HACHE-MINER · Control privado</title><link rel="stylesheet" href="/style.css"></head>
+<title>HACHE-MINER · Control privado</title><link rel="stylesheet" href="/style.css?v=<?= miner_h(substr(hash_file('sha256',__DIR__.'/style.css'),0,12)) ?>"></head>
 <body><header><a class="brand" href="/">HACHE<span>MINER</span></a><small>CONTROL PRIVADO · PRL</small>
 <?php if($page!=='login'): ?><form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><button class="ghost" name="action" value="logout">Salir</button></form><?php endif; ?></header>
 <main>
@@ -229,6 +229,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 ?>
 <h3><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos conocidos</small></h3>
 <?php foreach($monitorData['groups'] as $g): if($g['organization']!==$org||$g['project_name']!==$project)continue; ?>
+<article class="monitor-entry">
 <details class="monitor-group">
 <summary>
 <strong><?= miner_h($g['group_name']) ?></strong>
@@ -251,17 +252,30 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php foreach($g['instances'] as $node): ?><tr><td data-label="Instancia"><code><?= miner_h($node['id']) ?></code></td>
 <td data-label="Estado"><?= miner_h($node['state']) ?></td>
 <td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
-<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td>
-<td data-label="Acción"><?php
- $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
- $cooldown=$manualCooldown[$fingerprint]??0;
- if($cooldown>0): ?>
- <span class="muted">Solicitada recientemente · esperar <?= (int)ceil($cooldown/60) ?> min</span>
- <?php elseif($g['recent'] && $node['ready'] && $node['state']==='running'): ?>
- <a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Buscar otro nodo</a>
- <?php else: ?><span class="muted">No disponible</span><?php endif; ?></td></tr><?php endforeach; ?>
+<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td></tr><?php endforeach; ?>
 </tbody></table></div><?php endif; ?>
 </details>
+<div class="monitor-entry-actions">
+<?php
+$actionsShown=0;
+foreach ($g['instances'] as $node):
+ if(!$g['recent'] || $g['state']!=='running' || !$node['ready'] || $node['state']!=='running')continue;
+ $actionsShown++;
+ $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
+ $cooldown=$manualCooldown[$fingerprint]??0;
+?>
+<div class="monitor-instance-shortcut">
+<span class="monitor-instance-id">Instancia <code title="<?= miner_h($node['id']) ?>">…<?= miner_h(substr((string)$node['id'],-10)) ?></code></span>
+<?php if($cooldown>0): ?>
+<span class="muted">Reasignación solicitada · esperar <?= (int)ceil($cooldown/60) ?> min</span>
+<?php else: ?>
+<a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Buscar otro nodo</a>
+<?php endif; ?>
+</div>
+<?php endforeach; ?>
+<?php if($actionsShown===0): ?><span class="muted">Sin instancias listas para reasignar. Despliega el grupo para consultar sus estados.</span><?php endif; ?>
+</div>
+</article>
 <?php endforeach;endforeach; ?>
 </section>
 <?php elseif($page==='finance'): ?>
