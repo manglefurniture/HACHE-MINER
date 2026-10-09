@@ -88,3 +88,57 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
  .monitor-entry .monitor-group>summary small{width:100%}
  .monitor-instance-shortcut{width:100%;justify-content:space-between}
 }
+
+/* Evidence-first cards: measured hashrate and trend outrank technical metadata. */
+.monitor-org-title{margin:30px 0 18px;font-size:1.15rem}
+.monitor-org-title small{font-weight:500;font-size:.76rem;margin-left:8px}
+.monitor-entry{border-left-width:5px}
+.monitor-entry--red{border-left-color:#f48b8b}
+.monitor-entry--yellow{border-left-color:#eec577}
+.monitor-entry--green{border-left-color:#66dcb0}
+.monitor-entry--neutral{border-left-color:#718aa7}
+.monitor-topline{display:flex;justify-content:space-between;align-items:center;gap:16px;
+ flex-wrap:wrap;border-bottom:1px solid #344a62;padding-bottom:14px;margin-bottom:15px}
+.monitor-topline h4{font-size:1.05rem;overflow-wrap:anywhere;margin:0 0 5px}
+.monitor-state{font-size:.76rem;color:var(--muted)}
+.monitor-group-total{text-align:right}
+.monitor-group-total strong{display:block;font-size:1.25rem}
+.monitor-group-total small{display:block}
+.monitor-node-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px}
+.monitor-node{border:1px solid #355069;background:#102037;border-radius:12px;
+ padding:15px;min-width:0;position:relative}
+.monitor-node--green{--signal:#60e3ae;border-color:#276e55}
+.monitor-node--yellow{--signal:#f5c86e;border-color:#967338}
+.monitor-node--red{--signal:#fb9393;border-color:#9a4949}
+.monitor-node--neutral,.monitor-node--unknown{--signal:#a9bdd0}
+.monitor-node-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.monitor-node-heading>span:first-child{font-size:.82rem;color:var(--muted);overflow-wrap:anywhere}
+.monitor-node-heading code{color:var(--text)}
+.monitor-signal{padding:3px 10px;border:1px solid currentColor;border-radius:999px;
+ color:var(--signal);font-weight:700;font-size:.72rem}
+.monitor-node-rate{display:flex;align-items:baseline;gap:9px;padding:10px 0 2px;
+ color:var(--signal)}
+.monitor-node-rate strong{font-size:clamp(1.75rem,4vw,2.45rem);font-variant-numeric:tabular-nums;line-height:1.2}
+.monitor-node-rate span{font-size:.95rem;font-weight:700}
+.monitor-margin{font-size:.78rem;color:var(--muted);margin:6px 0 12px}
+.monitor-margin strong{color:var(--signal)}
+.monitor-trend{padding:11px;border:1px solid #30425a;background:#0c1829;
+ border-radius:9px;min-height:132px;color:var(--signal)}
+.monitor-chart-label{display:block;font-size:.72rem;font-weight:650;margin-bottom:5px;color:var(--muted)}
+.monitor-trend svg{width:100%;height:80px;display:block}
+.monitor-trend small{font-size:.7rem;display:block;color:var(--muted)}
+.monitor-node-facts{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;
+ color:var(--muted);font-size:.73rem;margin:12px 0;overflow-wrap:anywhere}
+.monitor-node-action{border-top:1px solid #30445b;padding-top:10px;margin-top:10px}
+.monitor-node-action .reallocate-link{margin:0}
+.monitor-entry .monitor-group{margin-top:15px;border-top:1px solid #344a62;padding-top:12px}
+.monitor-entry .monitor-group>summary{display:list-item;list-style:disclosure-closed inside;cursor:pointer;
+ color:var(--muted);font-size:.84rem;min-height:0}
+.monitor-entry .monitor-group[open]>summary{list-style:disclosure-open inside}
+.monitor-entry .monitor-group>summary::before{content:none}
+.monitor-entry .monitor-group>summary small{display:inline;margin-left:8px;font-weight:400}
+@media(max-width:720px){
+ .monitor-group-total{text-align:left}
+ .monitor-node-facts{grid-template-columns:1fr}
+ .monitor-node-grid{grid-template-columns:1fr}
+}
