@@ -6,6 +6,7 @@ require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/accounting.php';
+require_once dirname(__DIR__).'/app/salad-credits.php';
 require_once dirname(__DIR__).'/app/reallocate.php';
 miner_security_headers();
 try {
@@ -90,6 +91,22 @@ try {
                     $st=miner_db()->prepare('INSERT INTO gpu_rates (organization,gpu_class,priority,usd_per_hour) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE usd_per_hour=VALUES(usd_per_hour),effective_at=CURRENT_TIMESTAMP');
                     $st->execute([$org,$gpu,$priority,$rate]);
                     miner_audit($uid,'gpu_rate_updated',$org);
+                } elseif ($action==='credit_snapshot') {
+                    if($page!=='finance')throw new DomainException('Credit snapshot requires admin finance');
+                    $orgs=array_values(array_unique(array_column(miner_salad_targets(false),'organization_slug')));
+                    $row=miner_credit_validate([
+                        'organization'=>$_POST['snapshot_org']??'',
+                        'snapshot_date'=>$_POST['snapshot_date']??'',
+                        'issued_usd'=>$_POST['issued_usd']??'',
+                        'consumed_usd'=>$_POST['consumed_usd']??'',
+                        'available_usd'=>$_POST['available_usd']??'',
+                        'expired_usd'=>$_POST['expired_usd']??'',
+                        'evidence_reference'=>$_POST['snapshot_reference']??''
+                    ],$orgs);
+                    $created=miner_credit_snapshot_insert($row);
+                    miner_audit($uid,'salad_credit_snapshot',$row['organization'].':'.$row['snapshot_date']);
+                    $_SESSION['credit_saved']=$created?'Saldo acumulado de Salad registrado':'Captura ya registrada, sin duplicar';
+                    header('Location: /?page=finance',true,303);exit;
                 } elseif ($action==='accounting_event') {
                     if ($page!=='finance' || !miner_accounting_ready()) {
                         throw new DomainException('Accounting feature not initialized');
@@ -118,7 +135,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -162,6 +179,10 @@ try {
         }
         if ($page==='finance') {
             $financeData=miner_finance_overview();
+            $creditData=miner_credit_snapshot_overview();
+            if(isset($_SESSION['credit_saved']) && is_string($_SESSION['credit_saved'])){
+                $creditSaved=$_SESSION['credit_saved'];unset($_SESSION['credit_saved']);
+            }
             $ledgerData=miner_accounting_overview();
             $ledgerPool=miner_pool_overview();
             if (isset($_SESSION['accounting_saved']) && is_string($_SESSION['accounting_saved'])) {
@@ -330,6 +351,47 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <div><strong><?= $ledgerData['prl_sold']===null?'Sin registros':miner_h(number_format((float)$ledgerData['prl_sold'],6)) ?></strong><small>PRL vendidos con comprobante</small></div>
 </div>
 <?php endif; ?>
+<section class="accounting-panel">
+<h3>Salad · facturación oficial acumulada</h3>
+<p class="muted">Datos de la pestaña Credits. El consumo es crédito usado hasta la fecha de cada captura, no un cargo adicional ni una factura nueva. Los créditos emitidos pueden incluir promociones y no representan necesariamente dinero pagado.</p>
+<?php if($creditSaved!==null): ?><p class="success"><?= miner_h($creditSaved) ?></p><?php endif; ?>
+<?php if(!$creditData['ready']): ?><p class="muted">Falta activar el historial de capturas de facturación en MariaDB (migración 005). No se alteran los movimientos ni el monitoreo.</p>
+<?php else: ?>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Captura</th><th>Emitidos USD</th><th>Consumidos USD</th><th>Disponibles USD</th><th>Vencidos USD</th></tr></thead><tbody>
+<?php foreach($creditData['items'] as $item): ?>
+<tr>
+<td data-label="Organización"><?= miner_h(strtoupper($item['organization'])) ?></td>
+<td data-label="Fecha de corte"><?= miner_h($item['snapshot_date']??'Sin registrar') ?></td>
+<td data-label="Emitidos"><?= miner_h($item['issued_usd']??'Desconocido') ?></td>
+<td data-label="Consumidos"><?= miner_h($item['consumed_usd']??'Desconocido') ?></td>
+<td data-label="Disponibles"><?= miner_h($item['available_usd']??'Desconocido') ?></td>
+<td data-label="Vencidos"><?= miner_h($item['expired_usd']??'Desconocido') ?></td>
+</tr><?php endforeach; ?>
+</tbody></table></div>
+<?php if($creditData['totals']!==null): ?>
+<div class="kpis">
+<div><strong>$<?= miner_h($creditData['totals']['issued_usd']) ?></strong><small>Créditos totales emitidos</small></div>
+<div><strong>$<?= miner_h($creditData['totals']['consumed_usd']) ?></strong><small>Consumo confirmado acumulado</small></div>
+<div><strong>$<?= miner_h($creditData['totals']['available_usd']) ?></strong><small>Crédito disponible al corte</small></div>
+</div>
+<?php else: ?><p class="muted">Totales globales incompletos: falta alguna organización.</p><?php endif; ?>
+<details><summary>Registrar nueva captura de créditos de Salad</summary>
+<p class="muted">Introduce las cifras del mismo día de corte y una referencia única a la captura o estado de cuenta. Se conservarán las fotografías anteriores; nunca sustituyen los pagos realizados.</p>
+<form method="post" action="/?page=finance">
+<input type="hidden" name="csrf" value="<?= $csrf ?>">
+<div class="accounting-input-grid">
+<label>Organización<select name="snapshot_org" required>
+<?php foreach(array_unique(array_column($targets,'organization_slug')) as $org): ?><option value="<?= miner_h($org) ?>"><?= miner_h(strtoupper($org)) ?></option><?php endforeach; ?></select></label>
+<label>Fecha de corte<input name="snapshot_date" required value="<?= gmdate('Y-m-d') ?>" maxlength="10"></label>
+<label>Créditos emitidos USD<input name="issued_usd" required inputmode="decimal" placeholder="70.00"></label>
+<label>Créditos consumidos USD<input name="consumed_usd" required inputmode="decimal" placeholder="62.23"></label>
+<label>Créditos disponibles USD<input name="available_usd" required inputmode="decimal" placeholder="7.77"></label>
+<label>Créditos vencidos USD<input name="expired_usd" required inputmode="decimal" value="0.00"></label>
+<label>Referencia única de comprobante<input name="snapshot_reference" required maxlength="160" placeholder="salad-credits-YYYY-MM-DD-hache"></label>
+</div><button name="action" value="credit_snapshot">Guardar fotografía acumulada</button>
+</form></details>
+<?php endif; ?>
+</section>
 <div class="accounting-grid">
 <div class="accounting-panel">
 <h3>Kryptex · existencias observadas</h3>
