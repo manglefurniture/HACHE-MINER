@@ -19,3 +19,17 @@ form+form{border-top:1px solid var(--outline);margin-top:18px;padding-top:18px}.
 .salad-target small{display:block;margin-top:3px;overflow-wrap:anywhere}
 .salad-target form{margin:6px 0 0}
 .salad-target .ghost{margin:0;padding:7px 11px;font-size:.83rem;min-height:38px}
+
+/* A real small-screen card layout, not squeezed desktop table columns. */
+@media(max-width:720px){
+  .mobile-stack{overflow-x:visible}
+  .mobile-stack table,.mobile-stack tbody{display:block;width:100%;min-width:0}
+  .mobile-stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+  .mobile-stack tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;padding:16px 2px;border-bottom:1px solid var(--outline)}
+  .mobile-stack td{display:block;min-width:0;padding:0;border:0;overflow-wrap:anywhere;word-break:normal;font-size:.89rem}
+  .mobile-stack td:first-child{grid-column:1/-1}
+  .mobile-stack td::before{content:attr(data-label);display:block;color:var(--muted);font-size:.7rem;font-weight:700;letter-spacing:.055em;text-transform:uppercase;margin-bottom:2px}
+  .mobile-stack td strong{font-size:.97rem}
+  .mobile-stack td small{display:block;overflow-wrap:anywhere;font-size:.76rem;margin-top:3px}
+  .mobile-stack td:last-child:nth-child(odd){grid-column:1/-1}
+}
