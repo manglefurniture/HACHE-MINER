@@ -1,0 +1,63 @@
+name: Deploy HACHE-MINER
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hache-miner-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Safe by default: repo variable must be explicitly set after infrastructure approval.
+    if: vars.MINER_AUTODEPLOY == 'enabled'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: sodium, pdo_mysql, mbstring, curl
+      - name: Validate version and tests
+        run: |
+          set -euo pipefail
+          find app public bin tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          php tests/core-regression.php
+      - name: Verify deploy settings
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.MINER_SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.MINER_SSH_USER }}
+          DEPLOY_KEY: ${{ secrets.MINER_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.MINER_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+      - name: Stage and activate GitHub commit
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.MINER_SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.MINER_SSH_USER }}
+          DEPLOY_KEY: ${{ secrets.MINER_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.MINER_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          SSH=(ssh -o StrictHostKeyChecking=yes -o BatchMode=yes -i ~/.ssh/id_ed25519)
+          RSYNC_SSH="ssh -o StrictHostKeyChecking=yes -o BatchMode=yes -i $HOME/.ssh/id_ed25519"
+          destination="$DEPLOY_USER@$DEPLOY_HOST"
+          "${SSH[@]}" "$destination" "test -d /srv/hache-miner/releases && test -w /srv/hache-miner/releases && mkdir -p /srv/hache-miner/releases/$GITHUB_SHA"
+          rsync -az --delete --exclude='.git/' -e "$RSYNC_SSH" ./ "$destination:/srv/hache-miner/releases/$GITHUB_SHA/"
+          "${SSH[@]}" "$destination" "bash /srv/hache-miner/releases/$GITHUB_SHA/deploy/activate.sh $GITHUB_SHA"
