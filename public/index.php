@@ -214,67 +214,86 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 </form>
 <?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
 <?php elseif($page==='monitor'): ?>
-<section class="card"><h2>Monitor dinámico de SaladCloud</h2>
-<p class="muted">Incluye todos los grupos conocidos desde que empezó la recolección, por organización y proyecto registrados. La API se consulta cada cinco minutos en segundo plano. Una réplica lista no demuestra shares aceptados. El monitor original de alertas y reasignación continúa separado.</p>
+<section class="card"><h2>Monitor en vivo · rendimiento por instancia</h2>
+<p class="muted">Actualización automática de Salad cada cinco minutos. Aquí solo aparecen grupos reportados durante las últimas ocho horas. Los eliminados o antiguos conservan su historial privado, pero no saturan el monitor.</p>
 <div class="kpis">
-<div><strong><?= (int)$monitorData['stats']['current_groups'] ?></strong><small>Grupos con lectura reciente</small></div>
+<div><strong><?= (int)$monitorData['stats']['current_groups'] ?></strong><small>Grupos recientes</small></div>
 <div><strong><?= (int)$monitorData['stats']['desired'] ?></strong><small>Réplicas solicitadas</small></div>
-<div><strong><?= (int)$monitorData['stats']['observed'] ?></strong><small>Instancias observadas 15 min</small></div>
+<div><strong><?= (int)$monitorData['stats']['observed'] ?></strong><small>Instancias observadas</small></div>
 <div><strong><?= (int)$monitorData['stats']['ready'] ?></strong><small>Contenedores listos</small></div></div>
-<p class="muted">Pendientes respecto a solicitadas: <?= (int)$monitorData['stats']['waiting'] ?>. Grupos solo históricos: <?= (int)$monitorData['stats']['historical'] ?>. Los grupos no consultados recientemente se mantienen como históricos, no se muestran falsamente como detenidos.</p>
-<?php if (!$monitorData['groups']): ?><p class="muted">No hay registros. Revisa organizaciones y proyectos en Configuración.</p><?php endif; ?>
+<p class="muted">En espera: <?= (int)$monitorData['stats']['waiting'] ?>. El color de rendimiento es una <strong>referencia de TH/s</strong> para minería PRL con RTX 4070 Ti SUPER Low, no una afirmación de rentabilidad neta en USD. El automático de Hache Natación permanece activo e independiente.</p>
+<?php if (!$monitorData['groups']): ?><p class="muted">No hay grupos reportados durante las últimas ocho horas. Verifica la recolección o Configuración.</p><?php endif; ?>
 <?php foreach($monitorData['targets'] as $t):
-    $org=$t['organization_slug'];$project=$t['project_slug'];$count=0;
-    foreach($monitorData['groups'] as $g) if($g['organization']===$org&&$g['project_name']===$project) $count++;
+ $org=(string)$t['organization_slug'];$project=(string)$t['project_slug'];$count=0;
+ foreach($monitorData['groups'] as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
+ if($count===0)continue;
 ?>
-<h3><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos conocidos</small></h3>
-<?php foreach($monitorData['groups'] as $g): if($g['organization']!==$org||$g['project_name']!==$project)continue; ?>
-<article class="monitor-entry">
-<details class="monitor-group">
-<summary>
-<strong><?= miner_h($g['group_name']) ?></strong>
-<span><?= miner_h(miner_monitor_status_label($g['classification'])) ?></span>
-<small>Solicitadas <?= (int)$g['desired_replicas'] ?> · observadas <?= (int)$g['observed'] ?> · listas <?= (int)$g['ready'] ?></small>
-</summary>
-<p class="muted">Estado del grupo: <?= miner_h($g['state']) ?> · prioridad: <?= miner_h($g['priority']??'desconocida') ?> · última lectura UTC: <?= miner_h($g['last_seen_at']) ?></p>
-<?php if($g['metric']!==null): ?>
-<p>Registro de un solo grupo/instancia: <strong><?= miner_h((string)$g['metric']['hashrate_ths']) ?> TH/s</strong> ·
-<?= miner_h($g['metric']['gpu']) ?> ·
-<?= miner_h((string)$g['metric']['watts']) ?> W ·
-<?= (int)$g['metric']['temp_c'] ?> °C · ventilador <?= (int)$g['metric']['fan'] ?>%.
-<small>Leído en un log a las <?= miner_h($g['metric']['at']) ?> UTC. No atribuido a otra réplica ni usado para calcular ingresos.</small></p>
-<?php endif; ?>
-<?php if($g['average_15m']!==null): ?><p class="muted">Media de 15 minutos informada en log: <?= miner_h((string)$g['average_15m']['ths']) ?> TH/s · <?= miner_h($g['average_15m']['at']) ?> UTC.</p><?php endif; ?>
-<?php if($g['warnings']>0): ?><p class="muted"><?= (int)$g['warnings'] ?> advertencias registradas en los últimos 15 minutos.</p><?php endif; ?>
-<?php if(!$g['recent']): ?><p class="muted">Grupo histórico: no hay lectura reciente que permita conocer su estado actual.</p>
-<?php elseif(!$g['instances']): ?><p class="muted">No hay identificadores de instancias observados recientemente. Puede estar asignando, detenido o sin disponibilidad.</p>
-<?php else: ?><div class="tablewrap mobile-stack"><table><thead><tr><th>ID de instancia</th><th>Estado</th><th>Contenedor listo</th><th>Observado UTC</th></tr></thead><tbody>
-<?php foreach($g['instances'] as $node): ?><tr><td data-label="Instancia"><code><?= miner_h($node['id']) ?></code></td>
-<td data-label="Estado"><?= miner_h($node['state']) ?></td>
-<td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
-<td data-label="Última lectura UTC"><?= miner_h($node['observed_at']) ?></td></tr><?php endforeach; ?>
-</tbody></table></div><?php endif; ?>
-</details>
-<div class="monitor-entry-actions">
-<?php
-$actionsShown=0;
-foreach ($g['instances'] as $node):
- if(!$g['recent'] || $g['state']!=='running' || !$node['ready'] || $node['state']!=='running')continue;
- $actionsShown++;
+<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos reportados en 8 h</small></h3>
+<?php foreach($monitorData['groups'] as $g):
+ if($g['organization']!==$org||$g['project_name']!==$project)continue;
+?>
+<article class="monitor-entry monitor-entry--<?= miner_h($g['signal']) ?>">
+<div class="monitor-topline">
+ <div><h4><?= miner_h($g['group_name']) ?></h4><span class="monitor-state"><?= miner_h(miner_monitor_status_label($g['classification'])) ?></span></div>
+ <div class="monitor-group-total"><strong><?= $g['total_ths']!==null ? miner_h(number_format($g['total_ths'],2,'.','')).' TH/s':'Sin total verificable' ?></strong>
+ <small><?= (int)$g['ready'] ?> listas / <?= (int)$g['desired_replicas'] ?> solicitadas</small></div>
+</div>
+<?php if(!$g['recent']): ?><p class="muted">Grupo reportado en las últimas ocho horas, pero su última consulta no es reciente. Las mediciones no se presentan como actuales.</p><?php endif; ?>
+<?php if(!$g['instances']): ?><p class="muted">Sin instancias observadas en los últimos 15 minutos. Puede seguir en asignación o detenido.</p><?php endif; ?>
+<div class="monitor-node-grid">
+<?php foreach($g['instances'] as $node):
+ $signal=$node['signal'];$m=$node['metric'];
  $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
  $cooldown=$manualCooldown[$fingerprint]??0;
 ?>
-<div class="monitor-instance-shortcut">
-<span class="monitor-instance-id">Instancia <code title="<?= miner_h($node['id']) ?>">…<?= miner_h(substr((string)$node['id'],-10)) ?></code></span>
-<?php if($cooldown>0): ?>
-<span class="muted">Reasignación solicitada · esperar <?= (int)ceil($cooldown/60) ?> min</span>
-<?php else: ?>
+<div class="monitor-node monitor-node--<?= miner_h($signal['level']) ?>">
+<div class="monitor-node-heading">
+ <span>Instancia <code title="<?= miner_h($node['id']) ?>">…<?= miner_h(substr((string)$node['id'],-10)) ?></code></span>
+ <span class="monitor-signal"><?= miner_h($signal['label']) ?></span>
+</div>
+<div class="monitor-node-rate">
+ <strong><?= $m!==null?miner_h(number_format($m['hashrate_ths'],2,'.','')):'—' ?></strong>
+ <span>TH/s</span>
+</div>
+<?php if($signal['floor']!==null): ?>
+<p class="monitor-margin">Umbral inferior orientativo: <?= miner_h(number_format($signal['floor'],0)) ?> TH/s · Margen: <strong><?= $signal['margin']>0?'+':'' ?><?= miner_h(number_format($signal['margin'],2,'.','')) ?> TH/s</strong></p>
+<?php elseif($m===null): ?><p class="monitor-margin">Sin medición individual reciente. Contenedor listo no significa shares aceptados.</p>
+<?php else: ?><p class="monitor-margin">Sin umbral de rentabilidad validado para esta GPU o moneda.</p><?php endif; ?>
+<div class="monitor-trend">
+<span class="monitor-chart-label">Últimas mediciones · <?= count($node['history']) ?> muestras</span>
+<?php if($node['chart']!==null): ?>
+<svg viewBox="0 0 360 90" preserveAspectRatio="none" role="img" aria-label="Tendencia histórica de hashrate de esta instancia">
+<line x1="6" y1="82" x2="354" y2="82" stroke="currentColor" stroke-opacity=".2"/>
+<polyline points="<?= miner_h($node['chart']) ?>" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+</svg>
+<?php else: ?><span class="muted">Esperando al menos dos muestras verificadas</span><?php endif; ?>
+<?php if($node['avg_recent']!==null): ?><small>Promedio de últimas muestras: <?= miner_h(number_format($node['avg_recent'],2,'.','')) ?> TH/s</small><?php endif; ?>
+</div>
+<div class="monitor-node-facts">
+<span>GPU: <?= miner_h($m['gpu_model']??$g['gpu_class']??'No identificada') ?></span>
+<span>Potencia: <?= $m!==null && $m['watts']!==null?miner_h(number_format($m['watts'],0)).' W':'Sin datos' ?></span>
+<span>Estado: <?= miner_h($node['state']) ?></span>
+<span>Última medida UTC: <?= miner_h($m['at']??'Sin datos') ?></span>
+</div>
+<div class="monitor-node-action">
+<?php if($cooldown>0): ?><span class="muted">Reasignación solicitada · esperar <?= (int)ceil($cooldown/60) ?> min</span>
+<?php elseif($g['recent'] && $g['state']==='running' && $node['ready'] && $node['state']==='running'): ?>
 <a class="reallocate-link" href="/?page=reallocate&amp;group_id=<?= (int)$g['id'] ?>&amp;instance_id=<?= rawurlencode((string)$node['id']) ?>">Buscar otro nodo</a>
-<?php endif; ?>
+<?php else: ?><span class="muted">Reasignación no disponible</span><?php endif; ?>
+</div>
 </div>
 <?php endforeach; ?>
-<?php if($actionsShown===0): ?><span class="muted">Sin instancias listas para reasignar. Despliega el grupo para consultar sus estados.</span><?php endif; ?>
 </div>
+<details class="monitor-group">
+<summary>Ver detalles técnicos del grupo <small><?= (int)$g['warnings'] ?> advertencias en 15 min</small></summary>
+<p class="muted">Estado del grupo: <?= miner_h($g['state']) ?> · prioridad: <?= miner_h($g['priority']??'desconocida') ?> · última lectura UTC: <?= miner_h($g['last_seen_at']) ?></p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Instancia</th><th>Estado</th><th>Lista</th><th>Última observación UTC</th></tr></thead><tbody>
+<?php foreach($g['instances'] as $node): ?><tr>
+<td data-label="Instancia"><code><?= miner_h($node['id']) ?></code></td>
+<td data-label="Estado"><?= miner_h($node['state']) ?></td>
+<td data-label="Lista"><?= $node['ready']?'Sí':'No' ?></td>
+<td data-label="Observado"><?= miner_h($node['observed_at']) ?></td></tr>
+<?php endforeach; ?></tbody></table></div></details>
 </article>
 <?php endforeach;endforeach; ?>
 </section>
