@@ -132,3 +132,93 @@ function miner_scrub_log(string $line): string {
     $line=preg_replace('/(?i)(api[_-]?key|authorization|password|token|secret)\s*[:=]\s*[^\s,;]+/','[redacted]',$line) ?? '';
     return mb_substr(trim(preg_replace('/[\x00-\x1F\x7F]+/',' ', $line)??''),0,800);
 }
+
+
+const MINER_REMEMBER_COOKIE = 'HACHEMINERDEVICE';
+const MINER_REMEMBER_DAYS = 30;
+
+/** Cookies are opaque, randomly generated bearer tokens, never a password. */
+function miner_remember_cookie_value(string $selector, string $validator): string {
+    if (!preg_match('/^[a-f0-9]{32}$/D', $selector) || !preg_match('/^[a-f0-9]{64}$/D', $validator)) {
+        throw new InvalidArgumentException('Token format invalid');
+    }
+    return $selector.':'.$validator;
+}
+function miner_parse_remember_cookie(mixed $cookie): ?array {
+    if (!is_string($cookie) || !preg_match('/^([a-f0-9]{32}):([a-f0-9]{64})$/D', $cookie, $m)) return null;
+    return [$m[1], $m[2]];
+}
+function miner_remember_cookie(string $value, int $expiry): void {
+    if (headers_sent()) throw new RuntimeException('Headers already sent');
+    setcookie(MINER_REMEMBER_COOKIE, $value, [
+        'expires'=>$expiry, 'path'=>'/', 'secure'=>true,
+        'httponly'=>true, 'samesite'=>'Strict'
+    ]);
+}
+function miner_clear_remember_cookie(): void {
+    miner_remember_cookie('', time()-3600);
+    unset($_COOKIE[MINER_REMEMBER_COOKIE]);
+}
+function miner_device_label(string $agent): string {
+    if (stripos($agent, 'Android')!==false) return 'Android · navegador';
+    if (stripos($agent, 'iPhone')!==false || stripos($agent, 'iPad')!==false) return 'iOS · navegador';
+    if (stripos($agent, 'Windows')!==false) return 'Windows · navegador';
+    if (stripos($agent, 'Macintosh')!==false) return 'Mac · navegador';
+    return 'Navegador';
+}
+function miner_issue_remember(int $adminId, string $agent): void {
+    $selector=bin2hex(random_bytes(16));
+    $validator=bin2hex(random_bytes(32));
+    $hash=hash('sha256', $validator);
+    $expiry=time()+MINER_REMEMBER_DAYS*86400;
+    $db=miner_db();
+    $db->prepare('DELETE FROM trusted_devices WHERE expires_at < UTC_TIMESTAMP() OR revoked_at IS NOT NULL')->execute();
+    // Limit outstanding trusted devices per administrator.
+    $db->prepare('DELETE FROM trusted_devices WHERE admin_id=? AND id NOT IN (SELECT id FROM (SELECT id FROM trusted_devices WHERE admin_id=? ORDER BY created_at DESC, id DESC LIMIT 9) AS allowed)')->execute([$adminId,$adminId]);
+    $stmt=$db->prepare('INSERT INTO trusted_devices(admin_id,selector,token_hash,device_label,expires_at) VALUES (?,?,?,?,?)');
+    $stmt->execute([$adminId,$selector,$hash,miner_device_label($agent),gmdate('Y-m-d H:i:s',$expiry)]);
+    miner_remember_cookie(miner_remember_cookie_value($selector,$validator),$expiry);
+    $_COOKIE[MINER_REMEMBER_COOKIE]=miner_remember_cookie_value($selector,$validator);
+    miner_audit($adminId,'trusted_device_added');
+}
+function miner_restore_remember(): void {
+    if (!empty($_SESSION['admin_id'])) return;
+    $raw=$_COOKIE[MINER_REMEMBER_COOKIE]??null;
+    if ($raw===null) return;
+    $pair=miner_parse_remember_cookie($raw);
+    if ($pair===null) { miner_clear_remember_cookie(); return; }
+    [$selector,$validator]=$pair;
+    $st=miner_db()->prepare('SELECT t.admin_id,t.token_hash FROM trusted_devices t JOIN administrators a ON a.id=t.admin_id WHERE t.selector=? AND t.revoked_at IS NULL AND t.expires_at>UTC_TIMESTAMP() LIMIT 1');
+    $st->execute([$selector]);
+    $row=$st->fetch();
+    if (!$row || !hash_equals((string)$row['token_hash'],hash('sha256',$validator))) {
+        miner_clear_remember_cookie();
+        return;
+    }
+    $newValidator=bin2hex(random_bytes(32));
+    $newHash=hash('sha256',$newValidator);
+    $expires=time()+MINER_REMEMBER_DAYS*86400;
+    // Atomic rotation prevents reuse of old stolen cookies after restoration.
+    $u=miner_db()->prepare('UPDATE trusted_devices SET token_hash=?,last_used_at=UTC_TIMESTAMP(),expires_at=? WHERE selector=? AND token_hash=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP()');
+    $u->execute([$newHash,gmdate('Y-m-d H:i:s',$expires),$selector,$row['token_hash']]);
+    if ($u->rowCount()!==1) { miner_clear_remember_cookie(); return; }
+    session_regenerate_id(true);
+    $_SESSION=['admin_id'=>(int)$row['admin_id'],'last_seen'=>time(),'csrf'=>bin2hex(random_bytes(32))];
+    miner_remember_cookie(miner_remember_cookie_value($selector,$newValidator),$expires);
+    $_COOKIE[MINER_REMEMBER_COOKIE]=miner_remember_cookie_value($selector,$newValidator);
+    miner_audit((int)$row['admin_id'],'trusted_device_restored');
+}
+function miner_revoke_current_device(int $adminId): void {
+    $pair=miner_parse_remember_cookie($_COOKIE[MINER_REMEMBER_COOKIE]??null);
+    if ($pair!==null) {
+        $st=miner_db()->prepare('UPDATE trusted_devices SET revoked_at=UTC_TIMESTAMP() WHERE admin_id=? AND selector=? AND revoked_at IS NULL');
+        $st->execute([$adminId,$pair[0]]);
+    }
+    miner_clear_remember_cookie();
+}
+function miner_revoke_all_devices(int $adminId): void {
+    $st=miner_db()->prepare('UPDATE trusted_devices SET revoked_at=UTC_TIMESTAMP() WHERE admin_id=? AND revoked_at IS NULL');
+    $st->execute([$adminId]);
+    miner_audit($adminId,'trusted_devices_revoked');
+    miner_clear_remember_cookie();
+}
