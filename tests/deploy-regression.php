@@ -29,4 +29,7 @@ assert_deploy(str_contains($installer, 'installed_site=1'), 'Installer must dist
 assert_deploy(str_contains($installer, 'php-fpm8.4 -t'), 'PHP pool configuration must pass validation before reload');
 assert_deploy(str_contains($installer, 'nginx -t'), 'Nginx configuration must pass validation before reload');
 assert_deploy(str_contains($installer, 'available_kib >= 131072'), 'Installer must protect existing host under memory pressure');
+assert_deploy(str_contains($installer, 'sleep 1'), 'Installer must wait for async PHP-FPM reload');
+assert_deploy(str_contains($installer, 'pool_ready=0'), 'Installer must track the dedicated pool socket readiness');
+assert_deploy(str_contains($installer, 'after 30-second wait'), 'Installer must timeout and rollback stalled PHP-FPM pools');
 echo "PASS deploy-isolation-regression\n";
