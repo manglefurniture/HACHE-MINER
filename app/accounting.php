@@ -102,6 +102,9 @@ function miner_accounting_overview(): array {
       COUNT(*) records,SUM(usd_amount) usd,SUM(usd_fee) fee,SUM(prl_amount) prl
       FROM accounting_events GROUP BY org,event_type ORDER BY org,event_type")->fetchAll(PDO::FETCH_ASSOC);
     $total=$db->query("SELECT COUNT(*) records,
+      SUM(CASE WHEN event_type IN ('salad_topup','salad_refund','prl_sale','other_cost','other_income') THEN 1 ELSE 0 END) cash_events,
+      SUM(CASE WHEN event_type='prl_sale' THEN 1 ELSE 0 END) sale_events,
+      SUM(CASE WHEN event_type='prl_payout' THEN 1 ELSE 0 END) payout_events,
       SUM(CASE WHEN event_type IN ('salad_refund','other_income') THEN usd_amount
                WHEN event_type='prl_sale' THEN usd_amount-usd_fee ELSE 0 END) cash_in,
       SUM(CASE WHEN event_type IN ('salad_topup','other_cost') THEN usd_amount ELSE 0 END) cash_out,
@@ -112,10 +115,13 @@ function miner_accounting_overview(): array {
     $entries=$db->query("SELECT id,event_type,organization,occurred_at,usd_amount,usd_fee,prl_amount,source_reference,memo,created_at
       FROM accounting_events ORDER BY occurred_at DESC,id DESC LIMIT 40")->fetchAll(PDO::FETCH_ASSOC);
     $hasRows=(int)($total['records']??0)>0;
-    $cashIn=$hasRows?(string)$total['cash_in']:null;
-    $cashOut=$hasRows?(string)$total['cash_out']:null;
+    $hasCash=(int)($total['cash_events']??0)>0;
+    $hasSale=(int)($total['sale_events']??0)>0;
+    $hasPayout=(int)($total['payout_events']??0)>0;
+    $cashIn=$hasCash?(string)$total['cash_in']:null;
+    $cashOut=$hasCash?(string)$total['cash_out']:null;
     $cashNet=null;
-    if($hasRows){
+    if($hasCash){
         $st=$db->query("SELECT
         SUM(CASE WHEN event_type IN ('salad_refund','other_income') THEN usd_amount
                  WHEN event_type='prl_sale' THEN usd_amount-usd_fee ELSE 0 END)
@@ -127,8 +133,8 @@ function miner_accounting_overview(): array {
         'ready'=>true,'entries'=>$entries,'aggregates'=>$groups,
         'registered_cash_in'=>$cashIn,'registered_cash_out'=>$cashOut,
         'registered_cash_net'=>$cashNet,
-        'shared_sales_net'=>$hasRows?(string)$total['sales_net']:null,
-        'prl_sold'=>$hasRows?(string)$total['prl_sold']:null,
-        'prl_paid_out'=>$hasRows?(string)$total['prl_payouts']:null
+        'shared_sales_net'=>$hasSale?(string)$total['sales_net']:null,
+        'prl_sold'=>$hasSale?(string)$total['prl_sold']:null,
+        'prl_paid_out'=>$hasPayout?(string)$total['prl_payouts']:null
     ];
 }
