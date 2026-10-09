@@ -32,4 +32,8 @@ assert_deploy(str_contains($installer, 'available_kib >= 131072'), 'Installer mu
 assert_deploy(str_contains($installer, 'sleep 1'), 'Installer must wait for async PHP-FPM reload');
 assert_deploy(str_contains($installer, 'pool_ready=0'), 'Installer must track the dedicated pool socket readiness');
 assert_deploy(str_contains($installer, 'after 30-second wait'), 'Installer must timeout and rollback stalled PHP-FPM pools');
+assert_deploy(str_contains($installer, "acme_ready=0"), 'ACME location must be checked after async Nginx reload');
+assert_deploy(str_contains($installer, "MINER_ACME_ROUTE_READY"), 'ACME route must return the exact challenge probe');
+assert_deploy(str_contains($installer, "https_ready=0"), 'HTTPS readiness must handle asynchronous reload');
+assert_deploy(str_contains($installer, "--noproxy '*'"), 'Local preflight must bypass outbound proxies');
 echo "PASS deploy-isolation-regression\n";
