@@ -6,6 +6,8 @@ require_once __DIR__.'/core.php';
 function miner_monitor_status(string $groupState, bool $recent, int $desired, int $observed, int $ready): string {
     if (!$recent) return 'sin_lectura';
     $state=strtolower($groupState);
+    if ($state==='not_listed') return 'no_figura_en_salad';
+    if ($state==='unverified') return 'sin_confirmacion';
     if (in_array($state,['stopped','stopping','disabled'],true)) return 'detenido';
     if (in_array($state,['pending','allocating','starting','deploying'],true)) return 'esperando';
     if (!in_array($state,['running','started'],true)) return 'desconocido';
@@ -17,6 +19,8 @@ function miner_monitor_status(string $groupState, bool $recent, int $desired, in
 function miner_monitor_status_label(string $status):string {
     return match ($status) {
         'sin_lectura'=>'Sin lectura reciente',
+        'no_figura_en_salad'=>'Ya no aparece en Salad',
+        'sin_confirmacion'=>'Instancias sin confirmar',
         'detenido'=>'Detenido',
         'esperando'=>'Pendiente de asignación',
         'sin_replicas'=>'Sin réplicas solicitadas',
@@ -379,10 +383,23 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
 }
 
 /**
+ * Group records are historical; the authoritative instance list is ONLY the
+ * last successful Salad instances snapshot. Previously observed replica IDs
+ * must never inherit a newer group "running" state after they disappear.
+ * Compare exact UTC sample times: both sides are written together by poll.php.
+ */
+function miner_monitor_current_snapshot_nodes(array $rows,string $snapshotAt): array {
+    if($snapshotAt==='')return [];
+    return array_values(array_filter($rows,static fn($node):bool=>
+        is_array($node) && ($node['observed_at']??null)===$snapshotAt));
+}
+
+/**
  * Vista dinámica de todas las agrupaciones registradas por las APIs de los
  * proyectos habilitados y con lecturas de Salad dentro de las últimas ocho horas.
- * Las instancias vistas en 15 min se listan individualmente, también si están
- * allocating o pendientes. No se usan para atribuir ingresos ni hashrate.
+ * Solo el snapshot de instancias ligado al último sondeo exitoso del grupo
+ * se muestra como actual. Los IDs de snapshots anteriores quedan en histórico,
+ * incluso si el grupo sigue running. No se infieren hashrates ni costos.
  */
 function miner_monitor_inventory(): array {
     $db=miner_db();
@@ -457,7 +474,14 @@ function miner_monitor_inventory(): array {
         $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$group['last_seen_at'],new DateTimeZone('UTC'));
         $age=$date!==false?$now-$date->getTimestamp():PHP_INT_MAX;
         $recent=$age>=-120 && $age<=900;
-        $instances=$recent?($byGroup[$id]??[]):[];
+        $groupState=strtolower((string)$group['state']);
+        // Even a fresh group poll cannot revive rows from a previous replica.
+        // A failed or missing-group poll has no confirmed active inventory.
+        $showable=!in_array($groupState,
+            ['not_listed','unverified','stopped','stopping','disabled'],true);
+        $instances=$recent && $showable
+            ?miner_monitor_current_snapshot_nodes($byGroup[$id]??[],(string)$group['last_seen_at'])
+            :[];
         $observed=count($instances);
         $ready=0;
         foreach($instances as $instance) if($instance['ready']) $ready++;
@@ -502,7 +526,9 @@ function miner_monitor_inventory(): array {
             :(in_array('yellow',$signals,true)?'yellow'
               :(count($signals)>0 && count(array_filter($signals,static fn($s)=>$s==='green'))===count($signals)?'green':'neutral'));
         $group['classification']=miner_monitor_status((string)$group['state'],$recent,$desired,$observed,$ready);
-        if($recent) {
+        // Removed/unverified groups can remain visible for context, but their
+        // old desired replicas are not live GPU requests or confirmed waiting.
+        if($recent && $showable) {
             $stats['current_groups']++;
             $stats['desired']+=$desired;$stats['observed']+=$observed;$stats['ready']+=$ready;
             if ($ready<$desired) $stats['waiting']+=$desired-$ready;

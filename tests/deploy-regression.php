@@ -185,4 +185,12 @@ assert_deploy(str_contains($dashboard,'Configuración → Tarifas de GPU'), 'Unp
 $diag=file_get_contents(__DIR__.'/../bin/diagnose-interactive-prl-2sesiones.php');
 assert_deploy(str_contains($diag,'_MAY_BE_TRUNCATED='), 'Page-limited diagnostics must explicitly disclose truncation');
 assert_deploy(!str_contains($diag,'implode(\' | \',array_slice($cleanModels'), 'Diagnostic must never leak parser-derived identifiers');
+assert_deploy(str_contains($poll,'miner_poll_mark_unlisted_groups('), 'Complete Salad group list must retire missing groups');
+assert_deploy(str_contains($poll,'$snapshotAt=gmdate('), 'Per-group instance snapshots must have own timestamp');
+assert_deploy(str_contains($poll, "preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',\$id)"), 'Unidentified instances may not be accepted as a complete snapshot');
+assert_deploy(str_contains($poll, "'next_cursor'"), 'Incomplete instance pagination cannot retire replica IDs');
+assert_deploy(str_contains($poll,'UPDATE group_state SET last_seen_at=? WHERE id=?'), 'Each successful instance fetch must commit latest snapshot timestamp');
+assert_deploy(str_contains($poll,"SET state='unverified'"), 'Failed instance lookup cannot retain previous running claim');
+assert_deploy(str_contains($monitor,'miner_monitor_current_snapshot_nodes('), 'Monitor must show only last authoritative instance snapshot');
+assert_deploy(str_contains($dashboard,'último sondeo confirmado'), 'UI must disclose poll freshness, not instant state');
 echo "PASS deploy-isolation-regression\n";
