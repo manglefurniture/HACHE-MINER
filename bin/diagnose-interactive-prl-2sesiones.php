@@ -33,6 +33,36 @@ function diag_fmt_time(mixed $date):string {
     $when=strtotime($date);
     return $when===false?'unknown':gmdate('Y-m-d H:i:s',$when);
 }
+/**
+ * Report only the shape of a TH/s log line, NOT its raw contents. Unknown
+ * words, wallet IDs, addresses, UUIDs, hostnames, URLs and long numbers
+ * are replaced. This is enough to determine SRBMiner output grammar safely.
+ */
+function diag_safe_ths_shape(string $raw): ?string {
+    $line=miner_scrub_log($raw);
+    $index=stripos($line,'TH/s');
+    if($index===false)return null;
+    $fragment=substr($line,max(0,$index-115),150);
+    $keep=[
+       'gpu','gpuhashrate','hashrate','hash','speed','hashrateavg','current','total',
+       'min','mins','minute','minutes','avg','average','reported','instant','instantaneous',
+       'srbminer','miner','device','devices','deviceid','gpuid','pool','worker','local',
+       'nvidia','geforce','rtx','laptop','ti','super','mh','gh','kh','th','s','w',
+       'c','fan','temp','power','core','accepted','rejected','share','shares',
+       'thread','threads','mining','rate','h','sec','watts','elapsed','overall',
+       'ethash','pearlhash','vram','cuda','opencl','mhz','bus','id'
+    ];
+    $result=preg_replace_callback('/[A-Za-z0-9_+.-]+/',static function(array $matches) use($keep):string {
+        $token=$matches[0];
+        if(preg_match('/^gpu[0-9]{1,2}$/i',$token))return 'GPU#';
+        if(preg_match('/^[0-9]+(?:\.[0-9]+)?$/D',$token))return '#';
+        return in_array(strtolower($token),$keep,true)?$token:'WORD';
+    },$fragment) ?? '';
+    // Keep only harmless ASCII separators; do not leak raw control characters.
+    $result=preg_replace('/[^a-zA-Z0-9#\[\](){}\\/:.,;|%+><=\-_\s]/','?',$result)??'';
+    return substr(preg_replace('/\s+/',' ',$result)??'',0,180);
+}
+
 echo "SALAD_GROUP_LOG_DIAGNOSTIC_V1\n";
 echo "TARGET=INTERACTIVE/default/prl-2sesiones\n";
 echo "UTC=".gmdate('Y-m-d H:i:s')."\n";
@@ -77,6 +107,7 @@ foreach($filters as $label=>$query){
     $stats=['has_text'=>0,'has_json'=>0,'gpu_text'=>0,'ths_text'=>0,'recognized_gpu_metric'=>0,
        'recognized_and_instance_matched'=>0,'recognized_unattributed'=>0,'identity_label_present'=>0];
     $resourceKeys=[];$labelKeys=[];$structKeys=[];$metricModels=[];$lastTextAt='unknown';
+    $hasThWithMatchedInstance=0;$hasThAndGpuSameLine=0;$safeShapes=[];
     foreach($items as $item){
         if(!is_array($item))continue;
         $structKeys=array_merge($structKeys,array_keys($item));
@@ -94,7 +125,13 @@ foreach($filters as $label=>$query){
         if($raw!==''){$stats['has_text']++;if($lastTextAt==='unknown')$lastTextAt=diag_fmt_time($item['time']??null);}
         if(is_array($item['json_log']??null) && $item['json_log']!==[])$stats['has_json']++;
         if(stripos($raw,'GPU')!==false)$stats['gpu_text']++;
-        if(stripos($raw,'TH/s')!==false)$stats['ths_text']++;
+        if(stripos($raw,'TH/s')!==false){
+            $stats['ths_text']++;
+            if(stripos($raw,'GPU')!==false)$hasThAndGpuSameLine++;
+            if(miner_monitor_log_instance($item,$nodes)!==null)$hasThWithMatchedInstance++;
+            $shape=diag_safe_ths_shape($raw);
+            if($shape!==null)$safeShapes[$shape]=($safeShapes[$shape]??0)+1;
+        }
         $metric=miner_monitor_log_metric($raw);
         if($metric!==null){
            $stats['recognized_gpu_metric']++;
@@ -107,6 +144,15 @@ foreach($filters as $label=>$query){
     }
     foreach($stats as $name=>$count)echo strtoupper($label).'_'.strtoupper($name).'='.$count."\n";
     echo strtoupper($label).'_LATEST_TEXT_UTC='.$lastTextAt."\n";
+    echo strtoupper($label).'_THS_WITH_GPU_SAME_LINE='.$hasThAndGpuSameLine."\n";
+    echo strtoupper($label).'_THS_WITH_UNIQUE_INSTANCE='.$hasThWithMatchedInstance."\n";
+    arsort($safeShapes);
+    $shown=0;
+    foreach($safeShapes as $shape=>$count){
+        if(++$shown>6)break;
+        echo strtoupper($label).'_SANITIZED_SHAPE_'.$shown.'_COUNT='.$count."\n";
+        echo strtoupper($label).'_SANITIZED_SHAPE_'.$shown.'='.$shape."\n";
+    }
     // Only key names are displayed. Never print raw logs or label values.
     $safeKeys=static function(array $keys):string{
         $keys=array_values(array_filter(array_unique($keys),static fn($k)=>preg_match('/^[a-zA-Z0-9_]{1,64}$/D',(string)$k)));
