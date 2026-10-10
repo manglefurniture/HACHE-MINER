@@ -146,6 +146,27 @@ function miner_monitor_log_instance(array $item,array $nodes): ?string {
     return $id;
 }
 /**
+ * An unmatched identity is not anonymous: it may belong to a replaced node,
+ * conflict with the current API inventory or be missing from this page.
+ */
+function miner_monitor_log_has_identity_hint(array $item): bool {
+    $sources=[$item,$item['resource']??null,$item['resource']['labels']??null,$item['labels']??null];
+    $keys=['instance_id','container_group_instance_id','container_instance_id',
+        'container_instance','instanceId','containerGroupInstanceId',
+        'machine_id','container_group_machine_id','machineId'];
+    foreach($sources as $source){
+        if(!is_array($source))continue;
+        foreach($keys as $key)
+            if(is_scalar($source[$key]??null) && trim((string)$source[$key])!=='')
+                return true;
+    }
+    // A full UUID embedded in log content could be a worker identity. When
+    // unsure, fail closed as unknown rather than claim provenance was absent.
+    $raw=(string)($item['text_log']??$item['message']??'');
+    return preg_match('/\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b/i',$raw)===1;
+}
+
+/**
  * Persist *provenance class*, never worker IDs, alongside a scrubbed GPU log.
  * Older untagged rows remain unknown and must NOT be called unattributed.
  * This keeps existing schema and release rollback compatible.
@@ -154,10 +175,14 @@ function miner_monitor_tagged_log_summary(array $item,array $nodes): string {
     $raw=(string)($item['text_log']??$item['message']??'');
     $safe=miner_scrub_log($raw);
     // A worker could print a tag; discard any text resembling our marker.
-    $safe=preg_replace('/\\s*\\[MONITOR_GPU_(?:ATTRIBUTED|UNATTRIBUTED)\\]/i','',$safe)??'';
+    $safe=preg_replace('/\\s*\\[MONITOR_GPU_(?:ATTRIBUTED|UNATTRIBUTED|UNKNOWN)\\]/i','',$safe)??'';
     if(miner_monitor_log_metric($raw)===null)return $safe;
-    $suffix=miner_monitor_log_instance($item,$nodes)===null
-        ?' [MONITOR_GPU_UNATTRIBUTED]':' [MONITOR_GPU_ATTRIBUTED]';
+    $matched=miner_monitor_log_instance($item,$nodes);
+    // UNKNOWN covers explicit but mismatched/conflicting labels or worker IDs.
+    // Only the absence of identity hints is genuinely unattributed.
+    $suffix=$matched!==null?' [MONITOR_GPU_ATTRIBUTED]'
+        :(miner_monitor_log_has_identity_hint($item)
+            ?' [MONITOR_GPU_UNKNOWN]':' [MONITOR_GPU_UNATTRIBUTED]');
     return mb_substr($safe,0,800-strlen($suffix)).$suffix;
 }
 
