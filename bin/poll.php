@@ -76,7 +76,12 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     }
     // Group log hashrate must NOT be attributed to an individual replica without an instance ID.
     $safeMetric=$ready && $started && $state==='running' ? $metric:null;
-    $safeShares=$ready && $started && $state==='running' ? $shares:null;
+    // A repeated log returned by the seven-minute Salad window is NOT a new
+    // counter observation. Its original time must advance past the last poll.
+    $shareTs=isset($shares['log_at'])?strtotime((string)$shares['log_at']):false;
+    $prevTs=$old?strtotime((string)($old['observed_at']??'')):false;
+    $shareFresh=$shareTs!==false && ($prevTs===false || $shareTs>$prevTs);
+    $safeShares=$ready && $started && $state==='running' && $shareFresh ? $shares:null;
     $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
     $st->execute([
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
