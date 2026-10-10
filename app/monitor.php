@@ -300,7 +300,7 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
         if(!is_finite($v)||$v<0||$v>100)continue;
         $prices[$org."\\0".$gpu."\\0".$priority]=$v;
     }
-    $seen=[];$orgs=[];$details=[];
+    $seen=[];$orgs=[];$details=[];$missingDetails=[];
     $priced=0;$unpriced=0;$usd=0.0;
     foreach($groups as $g){
         $org=(string)($g['organization']??'');$project=(string)($g['project_name']??'');
@@ -318,7 +318,15 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
             if(isset($seen[$key]))continue;
             $seen[$key]=true;
             if(!isset($orgs[$org]))$orgs[$org]=['usd_per_hour'=>0.0,'priced'=>0,'unpriced'=>0];
-            if($rate===null){$unpriced++;$orgs[$org]['unpriced']++;continue;}
+            if($rate===null){
+                $unpriced++;$orgs[$org]['unpriced']++;
+                $unknownKey=$org."\\0".$class."\\0".$priority;
+                if(!isset($missingDetails[$unknownKey]))$missingDetails[$unknownKey]=[
+                    'organization'=>$org,'gpu_class'=>$class,'priority'=>$priority,'count'=>0
+                ];
+                $missingDetails[$unknownKey]['count']++;
+                continue;
+            }
             $priced++;$orgs[$org]['priced']++;$usd+=$rate;$orgs[$org]['usd_per_hour']+=$rate;
             $type=$org."\\0".$class."\\0".$priority;
             if(!isset($details[$type]))$details[$type]=[
@@ -333,14 +341,15 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
         $v['usd_per_hour']=$v['priced']?round($v['usd_per_hour'],6):null;
     }
     unset($v);
-    ksort($orgs);ksort($details);
+    ksort($orgs);ksort($details);ksort($missingDetails);
     foreach($details as &$d)$d['subtotal_usd_per_hour']=round($d['subtotal_usd_per_hour'],6);
     unset($d);
     return [
         'usd_per_hour'=>$priced?round($usd,6):null,
         'priced'=>$priced,'unpriced'=>$unpriced,'total'=>$priced+$unpriced,
         'complete'=>$priced+$unpriced>0&&$unpriced===0,
-        'organizations'=>$orgs,'details'=>array_values($details)
+        'organizations'=>$orgs,'details'=>array_values($details),
+        'missing_details'=>array_values($missingDetails)
     ];
 }
 
