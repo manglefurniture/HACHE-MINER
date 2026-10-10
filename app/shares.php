@@ -64,9 +64,9 @@ function miner_share_gpu_family(string $model): string
     if (preg_match('/\\b(?:RTX|GTX)\\s*(\\d{4})(?:\\s*(TI))?(?:\\s*(SUPER))?(?:\\s*(LAPTOP))?/i',$m,$parts)) {
         $prefix=str_contains($m,'GTX')?'GTX':'RTX';
         $result=$prefix.' '.$parts[1];
-        if (str_contains($m,'TI')) $result.=' TI';
-        if (str_contains($m,'SUPER')) $result.=' SUPER';
-        if (str_contains($m,'LAPTOP') || str_contains($m,'MOBILE')) $result.=' LAPTOP';
+        if (!empty($parts[2])) $result.=' TI';
+        if (!empty($parts[3])) $result.=' SUPER';
+        if (!empty($parts[4]) || str_contains($m,'MOBILE')) $result.=' LAPTOP';
         return $result;
     }
     return substr(trim(preg_replace('/\\s+/',' ',$m)??$m),0,120);
@@ -112,7 +112,14 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
         if (!str_starts_with(strtolower((string)($r['group_name']??'')),'prl-'))continue;
         $at=strtotime((string)($r['observed_at']??''));
         $counter=$r['accepted_shares']??null;
-        if ($at===false || $counter===null || !is_numeric($counter) || (float)$counter<0)continue;
+        if ($at===false)continue;
+        // Missing/invalid counters break continuity, even if nearby valid
+        // snapshots are less than eleven minutes apart.
+        if ($counter===null || !is_numeric($counter) || (float)$counter<0) {
+            unset($last[$id]);
+            if (isset($devices[$id]))$devices[$id]['no_change_seconds']=0;
+            continue;
+        }
         $key=(string)$r['organization'].'|'.strtolower((string)($r['priority']??'')).'|'.$identified[$id];
         $active=(int)$r['ready']===1 && (int)$r['started']===1 && (string)$r['state']==='running';
         $current=['ts'=>$at,'accepted'=>(int)$counter,'active'=>$active];
@@ -222,7 +229,7 @@ function miner_share_learning_dashboard(): array
     $base=" FROM miner_observations m JOIN group_state g ON g.id=m.group_id ";
     $samples=$db->query("SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started,m.accepted_shares,m.gpu_model,
         g.organization,g.project_name,g.group_name,g.priority".$base."
-        WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 30 HOUR AND m.accepted_shares IS NOT NULL
+        WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 30 HOUR
         ORDER BY m.observed_at DESC,m.id DESC LIMIT 12000")->fetchAll(PDO::FETCH_ASSOC);
     $hash=$db->query("SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started,m.hashrate_ths,m.gpu_model,
         g.organization,g.project_name,g.group_name,g.priority".$base."
