@@ -120,9 +120,20 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 $instances=miner_http_json($base.'/'.rawurlencode($g['name']).'/instances',$headers);
                 $nodes=$instances['instances']??$instances['items']??null;
                 if(!is_array($nodes))throw new RuntimeException('Sin lista de réplicas.');
-                // A missing or malformed row cannot prove a GPU was removed.
-                foreach($nodes as $node)if(!is_array($node))
-                    throw new RuntimeException('Instancias Salad incompletas.');
+                if(!empty($instances['next_cursor']))
+                    throw new RuntimeException('Paginación de instancias pendiente.');
+                // Use the SAME identifier validation as miner_instance_save().
+                // A malformed/partial response cannot prove a live GPU vanished.
+                $snapshotIds=[];
+                foreach($nodes as $node){
+                    if(!is_array($node))
+                        throw new RuntimeException('Instancias Salad incompletas.');
+                    $id=(string)($node['instance_id']??$node['id']??'');
+                    if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$id)
+                        ||isset($snapshotIds[$id]))
+                        throw new RuntimeException('Identificadores de instancia inválidos.');
+                    $snapshotIds[$id]=true;
+                }
             } catch(Throwable $e) {
                 // Fail closed: a group status alone is not proof of active GPUs.
                 miner_db()->prepare("UPDATE group_state SET state='unverified' WHERE id=?")
