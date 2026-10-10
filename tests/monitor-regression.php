@@ -117,6 +117,66 @@ monitor_assert(miner_monitor_sparkline([158.1])===null,'One reading is not a tre
 $chart=miner_monitor_sparkline([156.3,158.13,162.0]);
 monitor_assert(is_string($chart) && substr_count($chart,' ')===2 && !str_contains($chart,'NaN'),'Last three measurements must draw a 3-point line');
 
+// Provenance must be captured at ingest; historical logs cannot be relabelled.
+$gpuLog='[2026-10-10 01:19:00] #0 RTX 4070 Laptop Gpu 80.2 TH/s 85W';
+$tagged=miner_monitor_tagged_log_summary([
+    'text_log'=>$gpuLog,'resource'=>['labels'=>['instance_id'=>'a-111']]
+],[$nodeA,$nodeB]);
+monitor_assert(str_ends_with($tagged,'[MONITOR_GPU_ATTRIBUTED]'), 'Proven GPU reading needs attributed marker');
+monitor_assert(miner_monitor_log_metric($tagged)!==null, 'Provenance suffix must preserve TH/s parsing');
+$unknown=miner_monitor_tagged_log_summary(['text_log'=>$gpuLog],[$nodeA,$nodeB]);
+monitor_assert(str_ends_with($unknown,'[MONITOR_GPU_UNATTRIBUTED]'),'Anonymous two-GPU reading must be distinguished');
+monitor_assert(!str_contains($tagged,'a-111'),'Attribution metadata must never leak instance ID');
+monitor_assert(!str_contains(miner_monitor_tagged_log_summary([
+    'text_log'=>'[2026-10-10 01:19:00] #0 RTX 4070 Laptop Gpu 80 TH/s [MONITOR_GPU_ATTRIBUTED]'
+],[$nodeA,$nodeB]),'[MONITOR_GPU_ATTRIBUTED]'),'Untrusted miner-injected provenance must not persist');
+monitor_assert(miner_monitor_tagged_log_summary(['text_log'=>'pool hash 159 TH/s'],[$nodeA,$nodeB])==='pool hash 159 TH/s',
+    'Pool logs without per-GPU metric are never labelled attributable');
+
+// Billing rate must be independent of hashrate availability and respect Salad class, org and priority.
+$costNow=strtotime('2026-10-10T01:20:00Z');
+$costNode=static fn(string $id,string $date='2026-10-10 01:19:30',bool $ready=true):array=>[
+    'id'=>$id,'ready'=>$ready,'state'=>$ready?'running':'allocating','observed_at'=>$date,'metric'=>null
+];
+$costTargets=[
+ ['organization_slug'=>'hache','project_slug'=>'prl-tests','enabled'=>1],
+ ['organization_slug'=>'interactive','project_slug'=>'default','enabled'=>1],
+ ['organization_slug'=>'other','project_slug'=>'off','enabled'=>0]
+];
+$costGroups=[
+ ['id'=>1,'organization'=>'hache','project_name'=>'prl-tests','recent'=>true,'state'=>'running',
+  'gpu_class'=>'rtx4070tisuper','priority'=>'low','instances'=>[$costNode('h1'),$costNode('h1'),$costNode('h2'),$costNode('pending','2026-10-10 01:19:30',false)]],
+ ['id'=>2,'organization'=>'interactive','project_name'=>'default','recent'=>true,'state'=>'running',
+  'gpu_class'=>'rtx4070laptop','priority'=>'low','instances'=>[$costNode('i1'),$costNode('i2')]],
+ ['id'=>3,'organization'=>'interactive','project_name'=>'default','recent'=>true,'state'=>'running',
+  'gpu_class'=>'unknown','priority'=>'medium','instances'=>[$costNode('i3')]],
+ ['id'=>4,'organization'=>'hache','project_name'=>'prl-tests','recent'=>false,'state'=>'running',
+  'gpu_class'=>'rtx4070tisuper','priority'=>'low','instances'=>[$costNode('historical')]],
+ ['id'=>5,'organization'=>'other','project_name'=>'off','recent'=>true,'state'=>'running',
+  'gpu_class'=>'rtx4070tisuper','priority'=>'low','instances'=>[$costNode('disabled')]],
+ ['id'=>6,'organization'=>'hache','project_name'=>'prl-tests','recent'=>true,'state'=>'running',
+  'gpu_class'=>'rtx4070tisuper','priority'=>'low','instances'=>[$costNode('stale','2026-10-10 00:55:00')]]
+];
+$costRates=[
+ ['organization'=>'hache','gpu_class'=>'rtx4070tisuper','priority'=>'low','usd_per_hour'=>'0.130000'],
+ ['organization'=>'interactive','gpu_class'=>'rtx4070laptop','priority'=>'low','usd_per_hour'=>'0.060000'],
+ ['organization'=>'interactive','gpu_class'=>'unknown','priority'=>'low','usd_per_hour'=>'0.090000'],
+ ['organization'=>'other','gpu_class'=>'rtx4070tisuper','priority'=>'low','usd_per_hour'=>'3.000000']
+];
+$cost=miner_monitor_live_hourly_cost($costGroups,$costTargets,$costRates,$costNow);
+monitor_assert($cost['priced']===4 && $cost['unpriced']===1 && !$cost['complete'],
+    'Only distinct ready known-price GPU should be billed, count unpriced as partial');
+monitor_assert(abs($cost['usd_per_hour']-0.38)<0.000001,'2 x 0.13 + 2 x 0.06 = 0.38 USD/h');
+monitor_assert(abs($cost['organizations']['hache']['usd_per_hour']-0.26)<0.000001
+    && abs($cost['organizations']['interactive']['usd_per_hour']-0.12)<0.000001,
+    'Per-org USD/h must match active GPU classes and priorities');
+monitor_assert(count($cost['details'])===2,'GPU cost breakdown should include only known priced classes');
+$missing=miner_monitor_live_hourly_cost($costGroups,$costTargets,[],$costNow);
+monitor_assert($missing['usd_per_hour']===null && $missing['priced']===0 && $missing['unpriced']===5,
+    'Unknown prices are null not fabricated zero USD/h');
+$noReady=miner_monitor_live_hourly_cost([], $costTargets,$costRates,$costNow);
+monitor_assert($noReady['usd_per_hour']===null && $noReady['total']===0,'No observed GPUs does not prove zero billed');
+
 $summaryNow=(new DateTimeImmutable('2026-10-09T21:15:00Z'))->getTimestamp();
 $summaryTargets=[
  ['organization_slug'=>'hache','project_slug'=>'prl-tests','enabled'=>1],
