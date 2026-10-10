@@ -193,4 +193,12 @@ assert_deploy(str_contains($poll,'UPDATE group_state SET last_seen_at=? WHERE id
 assert_deploy(str_contains($poll,"SET state='unverified'"), 'Failed instance lookup cannot retain previous running claim');
 assert_deploy(str_contains($monitor,'miner_monitor_current_snapshot_nodes('), 'Monitor must show only last authoritative instance snapshot');
 assert_deploy(str_contains($dashboard,'último sondeo confirmado'), 'UI must disclose poll freshness, not instant state');
+assert_deploy(str_contains($dashboard,'<select name="gpu_class">'), 'GPU rate entry must offer historical Salad class choices');
+assert_deploy(str_contains($dashboard,"miner_gpu_rate_class_choices(\$classRows,\$rates)"),
+    'Dropdown must derive from saved group states plus rates, without a recent-time cutoff');
+assert_deploy(str_contains($dashboard,'name="gpu_class_custom"'), 'Unseen Salad class must retain manual fallback');
+assert_deploy(str_contains($dashboard,"\$gpu=\$newClass!==''?\$newClass:\$chosenClass;"),
+    'Manual new GPU class must be honored by rate write');
+assert_deploy(str_contains($dashboard,'miner_h($gpuClass)'), 'GPU class option HTML must be escaped');
+
 echo "PASS deploy-isolation-regression\n";
