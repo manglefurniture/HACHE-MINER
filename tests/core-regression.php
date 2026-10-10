@@ -53,4 +53,7 @@ check(miner_gpu_rate_class_choices([],[])===[],'No recorded models must not inve
 check(miner_gpu_rate_class_choices([['gpu_class'=>str_repeat('A',121)]],[])===[],
     'Oversized GPU IDs must not be presented as rate options');
 
+$numericIds=miner_gpu_rate_class_choices([['gpu_class'=>'123'],['gpu_class'=>'000123'],['gpu_class'=>'123']],[]);
+check($numericIds===['000123','123'], 'Numeric GPU IDs must stay strings with original leading zeros');
+foreach($numericIds as $gpuId)check(is_string($gpuId), 'GPU dropdown ID must be a string');
 echo "PASS core-security-regression\n";
