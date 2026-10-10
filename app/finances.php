@@ -18,10 +18,13 @@ function miner_gpu_rate_class_choices(array $observedGroups,array $existingRates
             $class=trim($class);
             if($class===''||strlen($class)>120
                 ||in_array(strtolower($class),['unknown','null','none','n/a','desconocida'],true))continue;
-            $seen[$class]=true;
+            // Prefix the deduplication key: PHP casts numeric-string array
+            // keys (e.g. "123") into integers, but miner_h() requires string.
+            // Preserve exactly the original Salad class ID in array values.
+            $seen['class:'.$class]=$class;
         }
     }
-    $options=array_keys($seen);
+    $options=array_values($seen);
     sort($options,SORT_NATURAL|SORT_FLAG_CASE);
     return $options;
 }
