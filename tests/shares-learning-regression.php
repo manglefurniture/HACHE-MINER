@@ -80,4 +80,13 @@ shcheck(str_contains($source,'accepted_shares,estimated_cost_usd') && str_contai
 shcheck(!str_contains(file_get_contents(dirname(__DIR__).'/app/shares.php'),'reallocate_instance('),'Learning signals must not trigger reallocation');
 $page=file_get_contents(dirname(__DIR__).'/public/index.php');
 shcheck(str_contains($page,'Aprendizaje de shares por GPU') && str_contains($page,'shareLearning'), 'Admin view missing');
+
+$healthy=miner_share_learning_safe(static fn()=>['groups'=>[['gpu'=>'RTX 4070']],'devices'=>[]]);
+shcheck($healthy['unavailable']===false && count($healthy['groups'])===1, 'Safe wrapper must preserve successful learning reads');
+$backup=miner_share_learning_safe(static fn()=>throw new PDOException('Unknown column accepted_shares','42S22'));
+shcheck($backup['unavailable']===true && $backup['groups']===[] && $backup['devices']===[] &&
+    $backup['alert_mode']==='informational_only', 'Optional query failure must not cause authenticated 503');
+$index=file_get_contents(dirname(__DIR__).'/public/index.php');
+shcheck(str_contains($index,'miner_share_learning_safe(static fn()=>miner_share_learning_dashboard())'),
+    'History page must use non-blocking wrapper');
 echo "SHARES_LEARNING_REGRESSION_OK\n";
