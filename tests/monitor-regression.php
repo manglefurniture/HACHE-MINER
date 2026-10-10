@@ -51,6 +51,10 @@ monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 average 15 min
     'Rolling averages cannot masquerade as index-first GPU rows');
 monitor_assert(miner_monitor_log_metric('share accepted: #0 RTX 4070 Laptop Gpu 88 TH/s')===null,
     'Embedded share statistics cannot masquerade as start-of-line table rows');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 15 min 81 TH/s')===null,
+    'Window summaries without the word average are not GPUs');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 worker 1 80 TH/s')===null,
+    'Worker summary is not a physical GPU');
 monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 RTX 4070 Laptop Gpu 88 MH/s')===null,
     'Other units must not be counted as TH/s');
 
