@@ -54,7 +54,7 @@ function miner_monitor_log_metric(string $line): ?array {
     if($match===null)return null;
     $gpu=trim((string)$match['gpu']," \t:-|[]");
     if($gpu===''||strlen($gpu)>120 || !preg_match('/[a-zA-Z]/',$gpu)
-        || preg_match('/\b(?:share|shares|accepted|rejected|pool|total|average|hashrate)\b/i',$gpu))return null;
+        || preg_match('/\b(?:share|shares|accepted|rejected|pool|total|average|hashrate|worker|speed|reported|overall|min|mins|minute|minutes|avg)\b/i',$gpu))return null;
     $hash=(float)$match['hash'];
     if(!is_finite($hash)||$hash<0||$hash>20000)return null;
     // Power, temperature and fan are optional metadata, never prerequisites
