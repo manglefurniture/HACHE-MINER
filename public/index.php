@@ -4,6 +4,7 @@ require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/diagnostics.php';
 require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
+require_once dirname(__DIR__).'/app/shares.php';
 require_once dirname(__DIR__).'/app/trial-history.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/accounting.php';
@@ -139,7 +140,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$shareLearning=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -195,7 +196,7 @@ try {
             }
         }
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
-        if ($page==='history') $trialHistory=miner_trial_history_compare();
+        if ($page==='history') {$trialHistory=miner_trial_history_compare();$shareLearning=miner_share_learning_dashboard();}
         if ($page==='settings') {
             // Historical Salad class IDs, not GPU models inferred from mining logs.
             // This query has no age cutoff and includes stopped / retired groups.
@@ -638,6 +639,38 @@ foreach($monitorData['groups'] as $group){
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
+<section class="card">
+<h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
+<p class="muted">Shares aceptados extraídos de resúmenes acumulativos de SRBMiner y vinculados a una instancia comprobada. Las lecturas repetidas no se suman. Cuando el contador se reinicia, no se interpreta la diferencia como shares perdidos. Las ventanas con más de 11 minutos entre muestras se excluyen.</p>
+<p class="muted"><strong>Alertas informativas:</strong> una caída sostenida de TH/s frente a tres o más GPU comparables, o 45 minutos observados sin nuevos shares. Ninguna señal reasigna, apaga o cambia prioridades. El número bruto de shares depende de la dificultad asignada por el pool: no se compara para sancionar ni sirve para calcular PRL reales.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización</th><th>Modelo GPU</th><th>Prioridad actual</th><th>Máquinas con datos</th><th>Mediana shares/h sin normalizar</th><th>Tiempo cubierto</th><th>Alertas informativas</th></tr></thead><tbody>
+<?php foreach($shareLearning['groups'] as $grp): ?><tr>
+<td data-label="Org."><?= miner_h(strtoupper((string)$grp['organization'])) ?></td>
+<td data-label="GPU"><?= miner_h($grp['gpu']) ?></td>
+<td data-label="Prioridad actual"><?= miner_h((string)$grp['priority_current']) ?></td>
+<td data-label="GPU"><?= (int)$grp['devices'] ?></td>
+<td data-label="Mediana bruta"><?= miner_h(number_format((float)$grp['median_shares_hour_raw'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$grp['coverage_minutes']) ?> min</td>
+<td data-label="Alertas"><?= (int)$grp['watch'] ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(!$shareLearning['groups']): ?><p class="muted">En aprendizaje: el recolector aún no tiene dos contadores acumulados válidos y atribuibles para una misma GPU.</p><?php endif; ?>
+<h3>Detalle de GPU con contadores comprobados</h3>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización / grupo</th><th>Modelo</th><th>Shares observados</th><th>Shares/h brutos</th><th>Período cubierto</th><th>Reinicios de contador</th><th>Evaluación</th></tr></thead><tbody>
+<?php foreach(array_slice($shareLearning['devices'],0,100) as $device): ?><tr>
+<td data-label="Grupo"><?= miner_h(strtoupper((string)$device['organization']).' / '.$device['group']) ?><small> · nodo …<?= miner_h(substr((string)$device['instance_id'],-8)) ?></small></td>
+<td data-label="Modelo"><?= miner_h($device['gpu']) ?></td>
+<td data-label="Shares"><?= (int)$device['accepted_delta'] ?></td>
+<td data-label="Shares/h"><?= miner_h(number_format((float)$device['accepted_per_hour'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$device['covered_minutes']) ?> min</td>
+<td data-label="Reinicios"><?= (int)$device['resets'] ?></td>
+<td data-label="Evaluación"><strong><?= $device['signal']==='watch'?'REVISAR':'Aprendiendo' ?></strong><small><?= miner_h($device['note']) ?></small></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(count($shareLearning['devices'])>100):?><p class="muted">Vista limitada a las primeras 100 instancias; los registros completos permanecen en MariaDB.</p><?php endif; ?>
+<p class="muted">Las prioridades y las clases son las actuales del grupo; no se reconstruyen retroactivamente sus cambios. Solo se analizan grupos de pruebas PRL (prefijo prl-). En grupos multirréplica, los shares sin identidad de instancia nunca se atribuyen a una GPU.</p>
+</section>
+
 <section class="card">
 <h2>Comparación de GPU · últimos siete días</h2>
 <p class="muted">Fechas de Cancún; una fila por organización, grupo y modelo GPU. Las muestras se guardan por instancia en MariaDB aunque se reasigne el nodo. Se cuentan lecturas con hashrate individual válido, no tiempo ininterrumpido ni PRL por tarjeta. El promedio TH/s no incluye muestras sin medición.</p>
