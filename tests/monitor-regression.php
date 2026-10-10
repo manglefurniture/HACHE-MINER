@@ -171,6 +171,11 @@ monitor_assert(abs($cost['organizations']['hache']['usd_per_hour']-0.26)<0.00000
     && abs($cost['organizations']['interactive']['usd_per_hour']-0.12)<0.000001,
     'Per-org USD/h must match active GPU classes and priorities');
 monitor_assert(count($cost['details'])===2,'GPU cost breakdown should include only known priced classes');
+monitor_assert(count($cost['missing_details'])===1
+    && $cost['missing_details'][0]['gpu_class']==='unknown'
+    && $cost['missing_details'][0]['priority']==='medium'
+    && $cost['missing_details'][0]['count']===1,
+    'Unpriced GPU must reveal exact class and priority for manual confirmed-rate entry');
 $missing=miner_monitor_live_hourly_cost($costGroups,$costTargets,[],$costNow);
 monitor_assert($missing['usd_per_hour']===null && $missing['priced']===0 && $missing['unpriced']===5,
     'Unknown prices are null not fabricated zero USD/h');
