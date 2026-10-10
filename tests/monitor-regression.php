@@ -35,6 +35,21 @@ monitor_assert(count($current)===1 && $current[0]['id']==='live',
     'Current replica must show without resurrecting a replaced instance ID');
 monitor_assert(miner_monitor_current_snapshot_nodes($stillPresent,'')===[],
     'No successful snapshot timestamp cannot confirm GPU activity');
+$closedGroup=[
+    'id'=>77,'organization'=>'hache','project_name'=>'prl-tests',
+    'state'=>'running','recent'=>true,'gpu_class'=>'rtx4070tisuper','priority'=>'low',
+    'instances'=>miner_monitor_current_snapshot_nodes($previous,$newSnapshot)
+];
+$enabledTarget=[['organization_slug'=>'hache','project_slug'=>'prl-tests','enabled'=>1]];
+$afterClose=miner_monitor_live_hashrate([$closedGroup],$enabledTarget,strtotime('2026-10-10T01:47:30Z'));
+monitor_assert($afterClose['ths']===null && $afterClose['ready']===0,
+    'Disappeared 114.74 TH/s must not inflate the global hashrate');
+$closedHourly=miner_monitor_live_hourly_cost([$closedGroup],$enabledTarget,[
+    ['organization'=>'hache','gpu_class'=>'rtx4070tisuper','priority'=>'low','usd_per_hour'=>'0.13']
+],strtotime('2026-10-10T01:47:30Z'));
+monitor_assert($closedHourly['total']===0 && $closedHourly['usd_per_hour']===null,
+    'Disappeared replica must not inflate USD per hour cost');
+
 
 $line="\x1B[0m[2026-10-09 16:00:00] \x1B[1mGPU0 #0 RTX 4070 Ti SUPER 160.25 TH/s 254.0W 0.63 88% 69C\x1B[0m";
 $metric=miner_monitor_log_metric($line);
