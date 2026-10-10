@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/kryptex.php';
 require_once dirname(__DIR__).'/app/monitor.php';
+require_once dirname(__DIR__).'/app/shares.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -60,7 +61,7 @@ function miner_log_save(int $groupId,array $items,array $nodes): void {
         $st->execute([$hash,$groupId,gmdate('Y-m-d H:i:s',$ts),$severity,$line]);
     }
 }
-function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null): void {
+function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null,?array $shares=null): void {
     $instanceId=(string)($instance['instance_id']??$instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
     $state=miner_instance_state($instance);
@@ -75,10 +76,12 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     }
     // Group log hashrate must NOT be attributed to an individual replica without an instance ID.
     $safeMetric=$ready && $started && $state==='running' ? $metric:null;
-    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?)');
+    $safeShares=$ready && $started && $state==='running' ? $shares:null;
+    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
     $st->execute([
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
-        $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,$cost
+        $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
+        $safeShares['accepted']??null,$cost
     ]);
 }
 /**
@@ -158,10 +161,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 miner_log_save($g['id'],$logs,$nodes);
             } catch(Throwable $e) { $logsError=$e; }
             $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
+            $shareCounters=miner_share_instance_counters($logs,$nodes);
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
-                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null);
+                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null);
             }
             // Update the group snapshot marker also when Salad returns zero
             // instances; this immediately makes older replica cards obsolete.
