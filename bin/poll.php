@@ -81,6 +81,21 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,$cost
     ]);
 }
+/**
+ * Salad's full successful group list is authoritative. Remove an old "running"
+ * claim when a group disappeared, retaining all SQL history and rate settings.
+ * Called ONLY after a complete, validated group listing; never on API error.
+ */
+function miner_poll_mark_unlisted_groups(string $org,string $project,array $listedNames): void {
+    $db=miner_db();
+    $rows=$db->prepare("SELECT id,group_name FROM group_state WHERE organization=? AND project_name=? AND state<>'not_listed'");
+    $rows->execute([$org,$project]);
+    $mark=$db->prepare("UPDATE group_state SET state='not_listed',last_seen_at=UTC_TIMESTAMP() WHERE id=?");
+    foreach($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if(!isset($listedNames[(string)$row['group_name']]))$mark->execute([(int)$row['id']]);
+    }
+}
+
 function miner_poll_salad(string $org,string $project,string $key): void {
     $base='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/projects/'.rawurlencode($project).'/containers';
     $headers=['Salad-Api-Key: '.$key,'Accept: application/json'];
@@ -88,18 +103,35 @@ function miner_poll_salad(string $org,string $project,string $key): void {
     $items=$groups['items']??$groups['container_groups']??null;
     if(!is_array($items))throw new RuntimeException('No se pudo interpretar el listado.');
     if(isset($groups['next_cursor']) && $groups['next_cursor'])throw new RuntimeException('Paginación pendiente: no se registra cobertura parcial como completa.');
-    $now=gmdate('Y-m-d H:i:s');
     $recorded=0;
-    $failed=0;
+    $failed=0;$validList=true;$listedNames=[];
     foreach($items as $group){
-        if(!is_array($group))continue;
+        if(!is_array($group)){$validList=false;continue;}
+        $groupName=(string)($group['name']??'');
+        if(!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/D',$groupName)){
+            $validList=false;continue;
+        }
+        $listedNames[$groupName]=true;
         $g=miner_group_upsert($org,$project,$group);
-        if(!$g)continue;
+        if(!$g){$validList=false;continue;}
         $recorded++;
         try {
-            $instances=miner_http_json($base.'/'.rawurlencode($g['name']).'/instances',$headers);
-            $nodes=$instances['instances']??$instances['items']??[];
-            if(!is_array($nodes))throw new RuntimeException('Sin lista de réplicas.');
+            try {
+                $instances=miner_http_json($base.'/'.rawurlencode($g['name']).'/instances',$headers);
+                $nodes=$instances['instances']??$instances['items']??null;
+                if(!is_array($nodes))throw new RuntimeException('Sin lista de réplicas.');
+                // A missing or malformed row cannot prove a GPU was removed.
+                foreach($nodes as $node)if(!is_array($node))
+                    throw new RuntimeException('Instancias Salad incompletas.');
+            } catch(Throwable $e) {
+                // Fail closed: a group status alone is not proof of active GPUs.
+                miner_db()->prepare("UPDATE group_state SET state='unverified' WHERE id=?")
+                    ->execute([$g['id']]);
+                throw $e;
+            }
+            // A single timestamp identifies THIS exact, successfully received
+            // snapshot. Historical replica rows are never treated as current.
+            $snapshotAt=gmdate('Y-m-d H:i:s');
             $rate=null;
             if($g['gpu_class']!==null) {
                 $st=miner_db()->prepare('SELECT usd_per_hour FROM gpu_rates WHERE organization=? AND gpu_class=? AND priority=?');
@@ -118,16 +150,27 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
-                miner_instance_save($g['id'],$node,$now,$rate,$metrics[$id]??null);
+                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null);
             }
+            // Update the group snapshot marker also when Salad returns zero
+            // instances; this immediately makes older replica cards obsolete.
+            miner_db()->prepare('UPDATE group_state SET last_seen_at=? WHERE id=?')
+                ->execute([$snapshotAt,$g['id']]);
             if($logsError!==null)throw $logsError;
         } catch(Throwable $e) {
             $failed++;
             miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',get_class($e).' during collection');
         }
     }
+    if($validList) {
+        miner_poll_mark_unlisted_groups($org,$project,$listedNames);
+    } else {
+        $failed++;
+        miner_run_record('salad:'.$org.'/'.$project,'partial',
+            'Malformed group list: missing-group reconciliation skipped');
+    }
     miner_run_record('salad:'.$org.'/'.$project,$failed>0?'partial':'ok',
-      'group snapshots: '.$recorded.'; partial groups: '.$failed.'; instance identity maintained');
+      'group snapshots: '.$recorded.'; partial groups: '.$failed.'; current instance snapshots only');
 }
 function miner_poll_kryptex(): void {
     $wallets=miner_db()->query("SELECT id,address FROM wallets WHERE coin='PRL' ORDER BY id LIMIT 101")->fetchAll();
