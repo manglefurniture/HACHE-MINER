@@ -253,7 +253,8 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 </form>
 <?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
 <?php elseif($page==='monitor'): ?>
-<section class="card"><h2>Monitor en vivo · rendimiento por instancia</h2>
+<section class="card"><h2>Monitor de GPU · última consulta de Salad</h2>
+<p class="muted">Las cifras son del último sondeo confirmado (aproximadamente cada cinco minutos), no una conexión en tiempo real. Las instancias cerradas entre sondeos pueden aparecer hasta la próxima consulta.</p>
 <?php $liveHash=$monitorData['live_hashrate'];$liveCost=$monitorData['live_hourly_cost']; ?>
 <div class="monitor-live-summary" aria-label="Resumen de hashrate medido">
 <div class="monitor-live-main">
@@ -353,7 +354,11 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
  <small>Salad devolvió registros de GPU sin identidad de réplica verificable. No se reparten entre las instancias ni se suman al total general.</small>
 </div>
 <?php endif; ?>
-<?php if(!$g['instances']): ?><p class="muted">Sin instancias observadas en los últimos 15 minutos. Puede seguir en asignación o detenido.</p><?php endif; ?>
+<?php if(!$g['instances']): ?>
+<?php if($g['state']==='not_listed'): ?><p class="muted">Este grupo ya no figura en la última lista recibida de Salad. Sus lecturas antiguas se conservan solo en el historial; no cuenta como GPU activa.</p>
+<?php elseif($g['state']==='unverified'): ?><p class="muted">No se pudo confirmar el inventario de instancias en Salad. No se reutilizan como actuales lecturas anteriores.</p>
+<?php else: ?><p class="muted">Sin instancias en el último sondeo confirmado. Puede estar asignando máquinas o haberse cerrado la réplica.</p><?php endif; ?>
+<?php endif; ?>
 <div class="monitor-node-grid">
 <?php foreach($g['instances'] as $node):
  $signal=$node['signal'];$m=$node['metric'];
@@ -386,7 +391,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <div class="monitor-node-facts">
 <span>GPU: <?= miner_h($m['gpu_model']??$g['gpu_class']??'No identificada') ?></span>
 <span>Potencia: <?= $m!==null && $m['watts']!==null?miner_h(number_format($m['watts'],0)).' W':'Sin datos' ?></span>
-<span>Estado: <?= miner_h($node['state']) ?></span>
+<span>Estado observado: <?= miner_h($node['state']) ?></span>
 <span>Última medida UTC: <?= miner_h($m['at']??'Sin datos') ?></span>
 </div>
 <div class="monitor-node-action">
