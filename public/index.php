@@ -254,7 +254,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
 <?php elseif($page==='monitor'): ?>
 <section class="card"><h2>Monitor en vivo · rendimiento por instancia</h2>
-<?php $liveHash=$monitorData['live_hashrate']; ?>
+<?php $liveHash=$monitorData['live_hashrate'];$liveCost=$monitorData['live_hourly_cost']; ?>
 <div class="monitor-live-summary" aria-label="Resumen de hashrate medido">
 <div class="monitor-live-main">
 <span class="monitor-live-label">TH/s observados · última medición efectiva por GPU</span>
@@ -269,6 +269,12 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <p class="muted monitor-live-timestamp">Lecturas UTC desde <?= miner_h($liveHash['oldest_at']) ?> hasta <?= miner_h($liveHash['last_at']) ?>. No es una medición simultánea ni una proyección.</p>
 <?php endif; ?>
 </div>
+<div class="monitor-live-cost" aria-label="Costo horario estimado">
+<span>Costo estimado ahora</span>
+<div class="monitor-live-cost-value"><?= $liveCost['usd_per_hour']===null?'Sin tarifa':'$'.miner_h(number_format($liveCost['usd_per_hour'],4,'.',',')) ?></div>
+<strong>USD/h</strong>
+<small><?= (int)$liveCost['priced'] ?>/<?= (int)$liveCost['total'] ?> GPU listas con precio<?php if($liveCost['unpriced']>0): ?> · Parcial<?php endif; ?></small>
+</div>
 <?php if($liveHash['organizations']): ?>
 <div class="monitor-live-orgs">
 <?php foreach($liveHash['organizations'] as $org=>$breakdown): ?>
@@ -279,6 +285,42 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 </div>
 <?php endif; ?>
 </div>
+<details class="monitor-cost-detail">
+<summary><span>Desglose de costos por GPU</span>
+ <strong><?= $liveCost['usd_per_hour']===null?'Sin tarifas confirmadas':'$'.miner_h(number_format($liveCost['usd_per_hour'],4,'.',',')).' USD/h' ?></strong>
+ <small><?= (int)$liveCost['priced'] ?> de <?= (int)$liveCost['total'] ?> GPU con tarifa
+ <?php if($liveCost['unpriced']>0): ?> · <?= (int)$liveCost['unpriced'] ?> sin precio: total parcial<?php endif; ?></small></summary>
+<p class="muted">Tarifas confirmadas por organización, clase de GPU y prioridad × instancias listas con lectura de estado hace menos de 10 minutos. <strong>Estimación horaria, no consumo facturado</strong>. Las GPU en asignación y sin tarifa conocida no están incluidas.</p>
+<?php if($liveCost['details']): ?>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización</th><th>GPU Salad</th><th>Prioridad</th><th>Listas</th><th>USD/h unidad</th><th>USD/h subtotal</th></tr></thead><tbody>
+<?php foreach($liveCost['details'] as $d): ?>
+<tr><td data-label="Organización"><?= miner_h(strtoupper($d['organization'])) ?></td>
+<td data-label="Clase"><?= miner_h($d['gpu_class']) ?></td>
+<td data-label="Prioridad"><?= miner_h($d['priority']) ?></td>
+<td data-label="GPU listas"><?= (int)$d['count'] ?></td>
+<td data-label="USD/h unidad">$<?= miner_h(number_format($d['unit_usd_per_hour'],4,'.',',')) ?></td>
+<td data-label="USD/h subtotal">$<?= miner_h(number_format($d['subtotal_usd_per_hour'],4,'.',',')) ?></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<?php endif; ?>
+<?php foreach($liveCost['organizations'] as $org=>$breakdown): ?>
+<p class="monitor-cost-org"><?= miner_h(strtoupper($org)) ?>:
+<?= $breakdown['usd_per_hour']===null?'Sin tarifas':'$'.miner_h(number_format($breakdown['usd_per_hour'],4,'.',',')).' USD/h' ?>
+· <?= (int)$breakdown['priced'] ?>/<?= (int)($breakdown['priced']+$breakdown['unpriced']) ?> GPU con precio
+<?php if($breakdown['unpriced']>0): ?> · parcial<?php endif; ?></p>
+<?php endforeach; ?>
+<?php if($liveCost['missing_details']): ?>
+<p class="muted"><strong>GPU sin tarifa confirmada (no incluidas en el total):</strong></p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Clase Salad</th><th>Prioridad</th><th>GPU listas</th></tr></thead><tbody>
+<?php foreach($liveCost['missing_details'] as $d): ?>
+<tr><td data-label="Organización"><?= miner_h(strtoupper($d['organization'])) ?></td>
+<td data-label="Clase"><?= miner_h($d['gpu_class']!==''?$d['gpu_class']:'Sin clase disponible') ?></td>
+<td data-label="Prioridad"><?= miner_h($d['priority']) ?></td>
+<td data-label="GPU listas"><?= (int)$d['count'] ?></td></tr>
+<?php endforeach; ?></tbody></table></div>
+<?php endif; ?>
+<?php if($liveCost['unpriced']>0): ?><p class="muted">Para completar los costos, introduce las tarifas reales de las GPU faltantes en <a href="/?page=settings">Configuración → Tarifas de GPU</a>. No se estiman precios desconocidos.</p><?php endif; ?>
+</details>
 <p class="muted">Este total suma únicamente TH/s individuales verificados y recientes, sin contar dos veces la misma instancia. No incluye máquinas sin medición ni sirve para calcular beneficios; si hay algoritmos distintos, sus tasas no son económicamente comparables.</p>
 <p class="muted">Actualización automática de Salad cada cinco minutos. Aquí solo aparecen grupos reportados durante las últimas ocho horas. Los eliminados o antiguos conservan su historial privado, pero no saturan el monitor.</p>
 <div class="kpis">
@@ -304,11 +346,11 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
  <small><?= (int)$g['ready'] ?> listas / <?= (int)$g['desired_replicas'] ?> solicitadas</small></div>
 </div>
 <?php if(!$g['recent']): ?><p class="muted">Grupo reportado en las últimas ocho horas, pero su última consulta no es reciente. Las mediciones no se presentan como actuales.</p><?php endif; ?>
-<?php if($g['group_log_observation']!==null && $g['total_ths']===null): ?>
+<?php if($g['group_log_observation']!==null): ?>
 <div class="monitor-group-evidence" role="note">
  <strong>Último registro de GPU del grupo (no es el total): <?= miner_h(number_format($g['group_log_observation']['hashrate_ths'],2,'.',',')) ?> TH/s</strong>
  <span><?= miner_h($g['group_log_observation']['gpu']) ?> · UTC <?= miner_h($g['group_log_observation']['logged_at']) ?> · <?= (int)$g['group_log_observation']['samples'] ?> registros de GPU recientes</span>
- <small>Salad devolvió lecturas del grupo, pero no hay datos suficientes para atribuirlas a estas réplicas. No se reparten entre las instancias ni se suman al total general.</small>
+ <small>Salad devolvió registros de GPU sin identidad de réplica verificable. No se reparten entre las instancias ni se suman al total general.</small>
 </div>
 <?php endif; ?>
 <?php if(!$g['instances']): ?><p class="muted">Sin instancias observadas en los últimos 15 minutos. Puede seguir en asignación o detenido.</p><?php endif; ?>

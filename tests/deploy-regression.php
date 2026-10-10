@@ -175,4 +175,14 @@ assert_deploy(str_contains($dashboard,'class="monitor-group-evidence"'), 'UI mus
 assert_deploy(str_contains($dashboard,'No se reparten entre las instancias ni se suman al total general.'), 'Unknown instance identity must never inflate confirmed TH/s');
 assert_deploy(str_contains($css,'.monitor-group-evidence{'), 'Group-only evidence needs a distinct style');
 assert_deploy(!str_contains($poll,'miner_reallocation_execute('), 'Read-only collector cannot relocate GPUs');
+assert_deploy(str_contains($poll,'miner_monitor_tagged_log_summary($item,$nodes)'), 'Collector must persist sanitized attribution class with every GPU metric');
+assert_deploy(str_contains($monitor,"summary LIKE '%[MONITOR_GPU_UNATTRIBUTED]'"), 'Anonymous group evidence must include only proven unattributed new logs');
+assert_deploy(!str_contains($dashboard,"group_log_observation']!==null &&"), 'Display truly anonymous evidence regardless of measured group total');
+assert_deploy(str_contains($monitor,'function miner_monitor_live_hourly_cost('), 'Monitoring needs separate hourly price-based computation');
+assert_deploy(str_contains($dashboard,'class="monitor-live-cost"'), 'Hourly GPU cost needs prominent placement alongside TH/s');
+assert_deploy(str_contains($dashboard,"'unpriced'"), 'Hourly rate estimate must expose incomplete price coverage');
+assert_deploy(str_contains($dashboard,'Configuración → Tarifas de GPU'), 'Unpriced GPU should link to configuration');
+$diag=file_get_contents(__DIR__.'/../bin/diagnose-interactive-prl-2sesiones.php');
+assert_deploy(str_contains($diag,'_MAY_BE_TRUNCATED='), 'Page-limited diagnostics must explicitly disclose truncation');
+assert_deploy(!str_contains($diag,'implode(\' | \',array_slice($cleanModels'), 'Diagnostic must never leak parser-derived identifiers');
 echo "PASS deploy-isolation-regression\n";

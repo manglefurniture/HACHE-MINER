@@ -145,6 +145,47 @@ function miner_monitor_log_instance(array $item,array $nodes): ?string {
     if($changed===false || $logged===false || $logged < $changed-30)return null;
     return $id;
 }
+/**
+ * An unmatched identity is not anonymous: it may belong to a replaced node,
+ * conflict with the current API inventory or be missing from this page.
+ */
+function miner_monitor_log_has_identity_hint(array $item): bool {
+    $sources=[$item,$item['resource']??null,$item['resource']['labels']??null,$item['labels']??null];
+    $keys=['instance_id','container_group_instance_id','container_instance_id',
+        'container_instance','instanceId','containerGroupInstanceId',
+        'machine_id','container_group_machine_id','machineId'];
+    foreach($sources as $source){
+        if(!is_array($source))continue;
+        foreach($keys as $key)
+            if(is_scalar($source[$key]??null) && trim((string)$source[$key])!=='')
+                return true;
+    }
+    // A full UUID embedded in log content could be a worker identity. When
+    // unsure, fail closed as unknown rather than claim provenance was absent.
+    $raw=(string)($item['text_log']??$item['message']??'');
+    return preg_match('/\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b/i',$raw)===1;
+}
+
+/**
+ * Persist *provenance class*, never worker IDs, alongside a scrubbed GPU log.
+ * Older untagged rows remain unknown and must NOT be called unattributed.
+ * This keeps existing schema and release rollback compatible.
+ */
+function miner_monitor_tagged_log_summary(array $item,array $nodes): string {
+    $raw=(string)($item['text_log']??$item['message']??'');
+    $safe=miner_scrub_log($raw);
+    // A worker could print a tag; discard any text resembling our marker.
+    $safe=preg_replace('/\\s*\\[MONITOR_GPU_(?:ATTRIBUTED|UNATTRIBUTED|UNKNOWN)\\]/i','',$safe)??'';
+    if(miner_monitor_log_metric($raw)===null)return $safe;
+    $matched=miner_monitor_log_instance($item,$nodes);
+    // UNKNOWN covers explicit but mismatched/conflicting labels or worker IDs.
+    // Only the absence of identity hints is genuinely unattributed.
+    $suffix=$matched!==null?' [MONITOR_GPU_ATTRIBUTED]'
+        :(miner_monitor_log_has_identity_hint($item)
+            ?' [MONITOR_GPU_UNKNOWN]':' [MONITOR_GPU_UNATTRIBUTED]');
+    return mb_substr($safe,0,800-strlen($suffix)).$suffix;
+}
+
 /** Return newest provably attributable GPU metric for each instance. */
 function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=null): array {
     $now=$now??time();
@@ -263,6 +304,81 @@ function miner_monitor_live_hashrate(array $groups,array $targets,int $now): arr
 }
 
 /**
+ * Current RUNNING/ready GPUs x explicitly configured Salad class/priority
+ * tariffs. Independent of TH/s and never a claim of official Salad billing.
+ * Stale nodes, disabled projects, allocations and missing rates do not become
+ * zero-dollar observations. No machine model-to-price guessing.
+ */
+function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rates,?int $now=null):array {
+    $now=$now??time();
+    $enabled=[];
+    foreach($targets as $t)if((int)($t['enabled']??0)===1)
+        $enabled[(string)$t['organization_slug']."\\0".(string)$t['project_slug']]=true;
+    $prices=[];
+    foreach($rates as $r){
+        $org=(string)($r['organization']??'');
+        $gpu=(string)($r['gpu_class']??'');
+        $priority=strtolower((string)($r['priority']??''));
+        $p=$r['usd_per_hour']??null;
+        if($org===''||$gpu===''||$priority===''||!is_numeric($p))continue;
+        $v=(float)$p;
+        if(!is_finite($v)||$v<0||$v>100)continue;
+        $prices[$org."\\0".$gpu."\\0".$priority]=$v;
+    }
+    $seen=[];$orgs=[];$details=[];$missingDetails=[];
+    $priced=0;$unpriced=0;$usd=0.0;
+    foreach($groups as $g){
+        $org=(string)($g['organization']??'');$project=(string)($g['project_name']??'');
+        if(empty($enabled[$org."\\0".$project])||empty($g['recent'])
+            ||strtolower((string)($g['state']??''))!=='running')continue;
+        $class=(string)($g['gpu_class']??'');
+        $priority=strtolower((string)($g['priority']??''));
+        $rate=$prices[$org."\\0".$class."\\0".$priority]??null;
+        foreach($g['instances']??[] as $n){
+            if(!is_array($n)||empty($n['ready'])||strtolower((string)($n['state']??''))!=='running')continue;
+            $id=(string)($n['id']??'');
+            $at=strtotime((string)($n['observed_at']??''));
+            if($id===''||$at===false||$at>$now+120||$now-$at>600)continue;
+            $key=$org."\\0".$project."\\0".(string)($g['id']??$g['group_name']??'')."\\0".$id;
+            if(isset($seen[$key]))continue;
+            $seen[$key]=true;
+            if(!isset($orgs[$org]))$orgs[$org]=['usd_per_hour'=>0.0,'priced'=>0,'unpriced'=>0];
+            if($rate===null){
+                $unpriced++;$orgs[$org]['unpriced']++;
+                $unknownKey=$org."\\0".$class."\\0".$priority;
+                if(!isset($missingDetails[$unknownKey]))$missingDetails[$unknownKey]=[
+                    'organization'=>$org,'gpu_class'=>$class,'priority'=>$priority,'count'=>0
+                ];
+                $missingDetails[$unknownKey]['count']++;
+                continue;
+            }
+            $priced++;$orgs[$org]['priced']++;$usd+=$rate;$orgs[$org]['usd_per_hour']+=$rate;
+            $type=$org."\\0".$class."\\0".$priority;
+            if(!isset($details[$type]))$details[$type]=[
+                'organization'=>$org,'gpu_class'=>$class,'priority'=>$priority,
+                'count'=>0,'unit_usd_per_hour'=>$rate,'subtotal_usd_per_hour'=>0.0
+            ];
+            $details[$type]['count']++;
+            $details[$type]['subtotal_usd_per_hour']+=$rate;
+        }
+    }
+    foreach($orgs as &$v){
+        $v['usd_per_hour']=$v['priced']?round($v['usd_per_hour'],6):null;
+    }
+    unset($v);
+    ksort($orgs);ksort($details);ksort($missingDetails);
+    foreach($details as &$d)$d['subtotal_usd_per_hour']=round($d['subtotal_usd_per_hour'],6);
+    unset($d);
+    return [
+        'usd_per_hour'=>$priced?round($usd,6):null,
+        'priced'=>$priced,'unpriced'=>$unpriced,'total'=>$priced+$unpriced,
+        'complete'=>$priced+$unpriced>0&&$unpriced===0,
+        'organizations'=>$orgs,'details'=>array_values($details),
+        'missing_details'=>array_values($missingDetails)
+    ];
+}
+
+/**
  * Vista dinámica de todas las agrupaciones registradas por las APIs de los
  * proyectos habilitados y con lecturas de Salad dentro de las últimas ocho horas.
  * Las instancias vistas en 15 min se listan individualmente, también si están
@@ -295,11 +411,12 @@ function miner_monitor_inventory(): array {
          ORDER BY logged_at DESC LIMIT 1500")->fetchAll(PDO::FETCH_ASSOC);
     $warningCount=[];
     foreach($logs as $log)$warningCount[(int)$log['group_id']]=($warningCount[(int)$log['group_id']]??0)+1;
-    // This is group-only evidence. The same line may belong to either GPU;
-    // do NOT divide it across replicas or count it in total TH/s.
+    // Show only logs explicitly tagged as unassigned at collection time.
+    // Untagged historical rows have unknown provenance, NOT proof of anonymity.
+    // Never use this group-only diagnostic in individual or global TH/s sums.
     $unassignedLogRows=$db->query("SELECT group_id,logged_at,summary FROM log_events
         WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE
-          AND summary LIKE '%TH/s%'
+          AND summary LIKE '%[MONITOR_GPU_UNATTRIBUTED]'
         ORDER BY logged_at DESC,event_hash DESC LIMIT 1400")->fetchAll(PDO::FETCH_ASSOC);
     $groupLogMetrics=[];
     foreach($unassignedLogRows as $row){
@@ -392,6 +509,9 @@ function miner_monitor_inventory(): array {
         } else $stats['historical']++;
     }
     unset($group);
+    // Rates are catalog entries confirmed by the administrator, not invoices.
+    $rates=$db->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates')->fetchAll(PDO::FETCH_ASSOC);
     return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
-        'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now)];
+        'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now),
+        'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now)];
 }

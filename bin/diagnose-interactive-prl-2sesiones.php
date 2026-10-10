@@ -103,10 +103,14 @@ foreach($filters as $label=>$query){
     echo "LOG_QUERY_".strtoupper($label)."_HTTP=".$res['status']."\n";
     $items=is_array($res['data']['items']??null)?$res['data']['items']:[];
     echo "LOG_QUERY_".strtoupper($label)."_ROWS=".count($items)."\n";
+    // Salad serves paged results (max 100). Counts are only of this one page.
+    // Never imply that a 25-minute interval was scanned completely at the cap.
+    echo "LOG_QUERY_".strtoupper($label)."_PAGE_SIZE_LIMIT=100\n";
+    echo "LOG_QUERY_".strtoupper($label)."_MAY_BE_TRUNCATED=".(count($items)>=100?'YES':'NO')."\n";
     if($res['status']!==200)continue;
     $stats=['has_text'=>0,'has_json'=>0,'gpu_text'=>0,'ths_text'=>0,'recognized_gpu_metric'=>0,
        'recognized_and_instance_matched'=>0,'recognized_unattributed'=>0,'identity_label_present'=>0];
-    $resourceKeys=[];$labelKeys=[];$structKeys=[];$metricModels=[];$lastTextAt='unknown';
+    $resourceKeys=[];$labelKeys=[];$structKeys=[];$lastTextAt='unknown';
     $hasThWithMatchedInstance=0;$hasThAndGpuSameLine=0;$safeShapes=[];
     foreach($items as $item){
         if(!is_array($item))continue;
@@ -135,8 +139,6 @@ foreach($filters as $label=>$query){
         $metric=miner_monitor_log_metric($raw);
         if($metric!==null){
            $stats['recognized_gpu_metric']++;
-           $model=(string)$metric['gpu'];
-           $metricModels[$model]=true;
            $matched=miner_monitor_log_instance($item,$nodes);
            if($matched===null)$stats['recognized_unattributed']++;
            else $stats['recognized_and_instance_matched']++;
@@ -161,8 +163,7 @@ foreach($filters as $label=>$query){
     echo strtoupper($label).'_FIELD_KEYS='.$safeKeys($structKeys)."\n";
     echo strtoupper($label).'_RESOURCE_KEYS='.$safeKeys($resourceKeys)."\n";
     echo strtoupper($label).'_LABEL_KEYS='.$safeKeys($labelKeys)."\n";
-    // The short GPU model is not a credential; never print the miner line.
-    $cleanModels=array_map(static fn($m)=>preg_replace('/[^a-zA-Z0-9 .+_-]/','',substr($m,0,80)),array_keys($metricModels));
-    echo strtoupper($label).'_PARSED_GPU_MODELS='.implode(' | ',array_slice($cleanModels,0,4))."\n";
+    // Even parsed GPU model strings may contain private IDs; never print any.
+    echo strtoupper($label).'_PARSED_GPU_MODELS=REDACTED'."\n";
 }
 echo "DIAGNOSTIC_COMPLETE_NO_GPU_ACTIONS_NO_SECRETS_PRINTED\n";
