@@ -45,7 +45,7 @@ function miner_group_upsert(string $org,string $project,array $group): ?array {
     $st->execute([$org,$project,$name,$state,$priority,$replicas,$class]);
     return ['id'=>(int)miner_db()->lastInsertId(),'name'=>$name,'state'=>$state,'priority'=>$priority,'gpu_class'=>$class,'replicas'=>$replicas];
 }
-function miner_log_save(int $groupId,array $items): void {
+function miner_log_save(int $groupId,array $items,array $nodes): void {
     $st=miner_db()->prepare('INSERT IGNORE INTO log_events(event_hash,group_id,logged_at,severity,summary) VALUES (?,?,?,?,?)');
     foreach($items as $item){
         if(!is_array($item))continue;
@@ -53,7 +53,7 @@ function miner_log_save(int $groupId,array $items): void {
         $time=(string)($item['time']??$item['timestamp']??'');
         $ts=strtotime($time);
         if($ts===false||$ts>time()+120||$ts<time()-86400||$raw==='')continue;
-        $line=miner_scrub_log($raw);
+        $line=miner_monitor_tagged_log_summary($item,$nodes);
         if($line==='')continue;
         $severity=preg_match('/error|reject|fail|invalid|exit 64|disconnect/i',$line)?'warning':'info';
         $hash=hash('sha256',$groupId.'|'.$time.'|'.$raw);
@@ -112,7 +112,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             $logs=[];$logsError=null;
             try {
                 $logs=miner_logs($org,$project,$g['name'],$key);
-                miner_log_save($g['id'],$logs);
+                miner_log_save($g['id'],$logs,$nodes);
             } catch(Throwable $e) { $logsError=$e; }
             $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
             foreach($nodes as $node) {
