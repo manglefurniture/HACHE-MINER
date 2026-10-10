@@ -173,3 +173,12 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - El segundo campo «Otra GPU» es opcional para una clase de Salad aún no presente en el historial; si se escribe, reemplaza la selección del desplegable. Esto mantiene compatibilidad con futuras GPU sin listas de modelos permitidos. Un ID de Salad es obligatorio al guardar, y el valor de USD/h continúa siendo manual y confirmado.
 - Las clases antiguas de un grupo que haya **cambiado de clase en el mismo nombre de grupo** pueden no estar en `group_state` porque la fila se sobrescribe. Permanecen seleccionables si se llegó a guardar su tarifa. Este cambio no afirma reconstruir clases borradas ni crea un historial retroactivo.
 - Este cambio es exclusivo de la interfaz de tarifas y la consulta de registros existentes. No altera la API de Salad, importes, reglas de rendimiento, extracción de TH/s, monitor de producción, timers o auto-reallocate.
+
+
+## Comparativa de siete días (octubre 2026)
+
+- En la vista privada **Historial** se comparan observaciones históricas por día local de Cancún, organización, proyecto, grupo y GPU. No se recortan las lecturas a las ocho horas del Monitor GPU: se utilizan los registros persistentes de MariaDB.
+- Se muestran instancias distintas (para detectar realojamientos), muestras totales, muestras con hashrate individual validado, y promedio de estas últimas. Una instancia iniciada o lista sin hashrate no cuenta como minería.
+- La prioridad se obtiene de `group_state`: **es la prioridad actual, NO la prioridad histórica**. Si un grupo cambió de Lowest a Low/Medium, no puede atribuirse cada muestra a esa prioridad sin una modificación posterior del esquema que registre transiciones. El panel lo advierte.
+- No se inventa PRL por GPU. Kryptex observa saldos **por dirección**, y varias GPU pueden compartirla. No se modifica el recolector, la política de reasignación automática, los Container Groups, ni la facturación.
+- El listado usa lecturas de los últimos siete días Cancún, limita respuesta a 600 filas y señala truncamientos. No añade consultas externas ni procesos nuevos.
