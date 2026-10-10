@@ -127,6 +127,19 @@ monitor_assert(miner_monitor_log_metric($tagged)!==null, 'Provenance suffix must
 $unknown=miner_monitor_tagged_log_summary(['text_log'=>$gpuLog],[$nodeA,$nodeB]);
 monitor_assert(str_ends_with($unknown,'[MONITOR_GPU_UNATTRIBUTED]'),'Anonymous two-GPU reading must be distinguished');
 monitor_assert(!str_contains($tagged,'a-111'),'Attribution metadata must never leak instance ID');
+monitor_assert(str_ends_with(miner_monitor_tagged_log_summary([
+    'text_log'=>$gpuLog,'resource'=>['labels'=>['instance_id'=>'replaced-node']]
+],[$nodeA,$nodeB]),'[MONITOR_GPU_UNKNOWN]'),
+    'Known label for replaced instance is unknown, never anonymous');
+monitor_assert(str_ends_with(miner_monitor_tagged_log_summary([
+    'text_log'=>$gpuLog,'resource'=>['labels'=>['instance_id'=>'a-111','machine_id'=>'machine-b']]
+],[$nodeA,$nodeB]),'[MONITOR_GPU_UNKNOWN]'),
+    'Conflicting explicit labels cannot be claimed anonymous');
+monitor_assert(str_ends_with(miner_monitor_tagged_log_summary([
+    'text_log'=>$gpuLog.' worker 11111111-1111-4111-8111-111111111111'
+],[$nodeA,$nodeB]),'[MONITOR_GPU_UNKNOWN]'),
+    'Unmatched worker UUID in miner output is unknown provenance');
+
 monitor_assert(!str_contains(miner_monitor_tagged_log_summary([
     'text_log'=>'[2026-10-10 01:19:00] #0 RTX 4070 Laptop Gpu 80 TH/s [MONITOR_GPU_ATTRIBUTED]'
 ],[$nodeA,$nodeB]),'[MONITOR_GPU_ATTRIBUTED]'),'Untrusted miner-injected provenance must not persist');
