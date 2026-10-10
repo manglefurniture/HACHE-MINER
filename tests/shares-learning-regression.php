@@ -32,6 +32,7 @@ shcheck(miner_share_instance_counters([$logs[0]],[$replaced],$now)===[], 'Log be
 shcheck(miner_share_gpu_family('NVIDIA GeForce RTX 4070 Laptop GPU')==='RTX 4070 LAPTOP','Laptop family');
 shcheck(miner_share_gpu_family('NVIDIA RTX 4070 Ti SUPER')==='RTX 4070 TI SUPER','Super and Ti family');
 shcheck(miner_share_gpu_family('NVIDIA RTX 5060 Ti')==='RTX 5060 TI','5060 Ti family');
+shcheck(miner_share_gpu_family('NVIDIA GeForce RTX 4070 Founders Edition')==='RTX 4070','Edition text cannot imply Ti');
 
 shcheck(miner_share_delta(['ts'=>1000,'accepted'=>10],['ts'=>1300,'accepted'=>15])['accepted']===5,'Counter difference incorrect');
 shcheck(miner_share_delta(['ts'=>1000,'accepted'=>10],['ts'=>1300,'accepted'=>10])['accepted']===0,'Repeated cumulative sample must add no shares');
@@ -51,6 +52,22 @@ shcheck($d['accepted_delta']===12 && $d['resets']===1,'Repeated or reset counter
 shcheck($d['covered_seconds']===1500 && $d['intervals']===5,'Valid timed intervals wrong');
 shcheck($d['accepted_per_hour']===28.8,'Shares per hour not normalized to valid sample time');
 shcheck($result['groups'][0]['priority_current']==='lowest','Lowest group excluded from learning');
+$missing=[
+    trial_row($t,10),trial_row($t+300,12),trial_row($t+600,0),
+    trial_row($t+900,15),trial_row($t+1200,16)
+];
+$missing[2]['accepted_shares']=null;
+$interrupted=miner_share_analyze($missing,[],$now);
+$interruptedRows=$interrupted['devices'];
+shcheck(count($interruptedRows)===1 && $interruptedRows[0]['accepted_delta']===3 &&
+        $interruptedRows[0]['covered_seconds']===600,
+    'Missing counter was bridged as if shares were observed continuously');
+$halted=[trial_row($t,10),trial_row($t+300,12),trial_row($t+600,13),trial_row($t+900,15)];
+$halted[2]['ready']=0;
+$paused=miner_share_analyze($halted,[],$now);
+shcheck(count($paused['devices'])===1 && $paused['devices'][0]['accepted_delta']===2,
+    'Stopped instance must break accepted-share interval continuity');
+
 shcheck($result['alert_mode']==='informational_only'&&!$result['share_difficulty_verified'],'Never enable automatic share thresholds without difficulty');
 $unsafe=trial_row($t+2100,1000,'other','');
 shcheck(miner_share_analyze([$unsafe],[],$now)['devices']===[], 'Unknown GPU model must not be attributed');
