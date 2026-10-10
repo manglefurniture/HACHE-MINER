@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/app/core.php';
+require_once dirname(__DIR__).'/app/finances.php';
 function check(bool $condition,string $message): void {if(!$condition)throw new RuntimeException($message);}
 $key=random_bytes(SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
 $sealed=miner_seal('test-api-secret-value',$key);
@@ -29,4 +30,30 @@ check(miner_instance_ready(['state'=>['status'=>'running'],'ready'=>true,'starte
 check(!miner_instance_ready(['state'=>['status'=>'running'],'ready'=>true,'started'=>false]),'Startup incomplete must not count ready');
 check(!miner_instance_ready(['state'=>['status'=>'pending'],'ready'=>true,'started'=>true]),'Pending container must not count ready');
 check(!miner_instance_ready(['state'=>['status'=>'running'],'ready'=>'true','started'=>true]),'Non-boolean readiness must not count');
+// GPU price selection must use exact Salad class IDs retained in any group
+// (including stopped ones), unioned with the existing price catalog.
+$recordedGpu=miner_gpu_rate_class_choices([
+    ['gpu_class'=>'nvidia-geforce-rtx4070tisuper'],
+    ['gpu_class'=>'nvidia-geforce-rtx4070laptop'],
+    ['gpu_class'=>'nvidia-geforce-rtx4070tisuper'],
+    ['gpu_class'=>' unknown '],
+    ['gpu_class'=>''],
+    ['gpu_class'=>null],
+    ['gpu_class'=>'  amd-radeon-rx6800  '],
+],[
+    ['gpu_class'=>'nvidia-geforce-rtx5090'],
+    ['gpu_class'=>'nvidia-geforce-rtx4070tisuper'],
+    ['gpu_class'=>'n/a'],
+]);
+check(count($recordedGpu)===4,'Historical GPU classes should be deduplicated, ignore blank/unknown and include saved rates');
+check(in_array('nvidia-geforce-rtx4070tisuper',$recordedGpu,true),'Persisted GPU class ID must not change');
+check(in_array('amd-radeon-rx6800',$recordedGpu,true),'Leading and trailing whitespace should be removed');
+check(in_array('nvidia-geforce-rtx5090',$recordedGpu,true),'Classes from old saved tariffs must remain selectable');
+check(miner_gpu_rate_class_choices([],[])===[],'No recorded models must not invent a GPU');
+check(miner_gpu_rate_class_choices([['gpu_class'=>str_repeat('A',121)]],[])===[],
+    'Oversized GPU IDs must not be presented as rate options');
+
+$numericIds=miner_gpu_rate_class_choices([['gpu_class'=>'123'],['gpu_class'=>'000123'],['gpu_class'=>'123']],[]);
+check(count($numericIds)===2 && in_array('000123',$numericIds,true) && in_array('123',$numericIds,true), 'Numeric GPU IDs must stay strings with original leading zeros');
+foreach($numericIds as $gpuId)check(is_string($gpuId), 'GPU dropdown ID must be a string');
 echo "PASS core-security-regression\n";

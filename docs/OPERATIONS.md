@@ -166,3 +166,10 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - Si la petición de instancias falla o devuelve un objeto no verificable, el estado se marca `unverified` y no se inventa actividad. No se considera la ausencia como una parada confirmada. Si la lista principal tiene registros malformados o paginación sin terminar, no se reconcilian ausencias.
 - La interfaz indica que es la **última consulta de Salad**, no telemetría instantánea: el sondeo corre aproximadamente cada cinco minutos, de modo que un cierre posterior al último sondeo todavía puede tardar un ciclo en reflejarse. No se inicia una consulta bajo demanda, ni se incrementa el tráfico a Salad.
 - Cambios solo de recolección de metadatos y presentación; sin migración, borrado de históricos, ajustes de permisos, reasignaciones, reinicios de GPU ni modificaciones a los tres temporizadores.
+
+
+## Catálogo de clases de GPU para tarifas
+- En Configuración → **Tarifas de GPU**, el ID de Salad se elige de un desplegable construido desde todas las clases no vacías de `group_state.gpu_class` (sin límite de antigüedad o restricción de estado) y `gpu_rates.gpu_class`, sin duplicados. No se consultan las API de Salad para dibujar el formulario, ni se actualiza la lista al instante: depende de lo ya registrado en el monitor.
+- El segundo campo «Otra GPU» es opcional para una clase de Salad aún no presente en el historial; si se escribe, reemplaza la selección del desplegable. Esto mantiene compatibilidad con futuras GPU sin listas de modelos permitidos. Un ID de Salad es obligatorio al guardar, y el valor de USD/h continúa siendo manual y confirmado.
+- Las clases antiguas de un grupo que haya **cambiado de clase en el mismo nombre de grupo** pueden no estar en `group_state` porque la fila se sobrescribe. Permanecen seleccionables si se llegó a guardar su tarifa. Este cambio no afirma reconstruir clases borradas ni crea un historial retroactivo.
+- Este cambio es exclusivo de la interfaz de tarifas y la consulta de registros existentes. No altera la API de Salad, importes, reglas de rendimiento, extracción de TH/s, monitor de producción, timers o auto-reallocate.

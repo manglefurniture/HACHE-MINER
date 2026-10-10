@@ -3,6 +3,33 @@ declare(strict_types=1);
 require_once __DIR__.'/core.php';
 
 /**
+ * Selectable historical Salad GPU class IDs for manual hourly-rate entry.
+ * The group table retains observed classes even when their groups stop;
+ * the rate catalog adds classes previously configured but no longer used.
+ * Never substitute a miner's display model for Salad's exact class ID.
+ */
+function miner_gpu_rate_class_choices(array $observedGroups,array $existingRates):array {
+    $seen=[];
+    foreach([$observedGroups,$existingRates] as $rows) {
+        foreach($rows as $r) {
+            if(!is_array($r))continue;
+            $class=$r['gpu_class']??null;
+            if(!is_string($class))continue;
+            $class=trim($class);
+            if($class===''||strlen($class)>120
+                ||in_array(strtolower($class),['unknown','null','none','n/a','desconocida'],true))continue;
+            // Prefix the deduplication key: PHP casts numeric-string array
+            // keys (e.g. "123") into integers, but miner_h() requires string.
+            // Preserve exactly the original Salad class ID in array values.
+            $seen['class:'.$class]=$class;
+        }
+    }
+    $options=array_values($seen);
+    sort($options,SORT_NATURAL|SORT_FLAG_CASE);
+    return $options;
+}
+
+/**
  * Expenses, explicitly separated into:
  * 1. amounts manually reconciled with Salad invoices
  * 2. partial observation-derived estimates from confirmed price catalog
