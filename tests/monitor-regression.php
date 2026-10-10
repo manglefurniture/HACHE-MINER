@@ -317,6 +317,22 @@ monitor_assert(array_column($shown,'id')===['first','second','third'],
     'Only producing cards should appear, in unchanged input order');
 monitor_assert(count($viewGroup['instances'])===7,
     'Filtering must not mutate the underlying inventory');
+monitor_assert(miner_monitor_producing_nodes([
+    'recent'=>true,'state'=>'allocating','instances'=>[
+        $makeViewNode('new',null,'2026-10-10 02:04:30',false)
+    ]
+],$viewNow)===[], 'Awaiting GPU allocation must have no card');
+$reacquired=[
+    'recent'=>true,'state'=>'running','instances'=>[
+        $makeViewNode('new',null),$makeViewNode('already-producing',112.25)
+    ]
+];
+monitor_assert(array_column(miner_monitor_producing_nodes($reacquired,$viewNow),'id')
+    ===['already-producing'], 'Newly assigned GPU without proof of production remains hidden');
+$reacquired['instances'][0]=$makeViewNode('new',83.75);
+monitor_assert(array_column(miner_monitor_producing_nodes($reacquired,$viewNow),'id')
+    ===['new','already-producing'], 'GPU automatically reappears in source order once positive TH/s is measured');
+
 monitor_assert(miner_monitor_producing_nodes(
     array_replace($viewGroup,['state'=>'not_listed']),$viewNow)===[],
     'Closed/absent groups must have no producing cards');
