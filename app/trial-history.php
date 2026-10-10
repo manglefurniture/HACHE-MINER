@@ -25,7 +25,7 @@ function miner_trial_history_normalize(array $item): array
         'project'=>(string)($item['project_name']??''),
         'group'=>(string)($item['group_name']??''),
         'priority_current'=>(string)($item['priority']??''),
-        'gpu'=>(string)($item['gpu_model']??''),
+        'gpu'=>(string)($item['model_key']??''),
         'samples'=>$samples,
         'observed'=>$observed,
         'instances'=>$instances,
@@ -45,7 +45,7 @@ function miner_trial_history_compare(): array
     $sql="SELECT DATE(m.observed_at - INTERVAL 5 HOUR) day_cancun,
         g.organization,g.project_name,g.group_name,
         COALESCE(g.priority,'desconocida') priority,
-        COALESCE(NULLIF(m.gpu_model,''),'Sin identificación') gpu_model,
+        COALESCE(NULLIF(m.gpu_model,''),identified.gpu_model,'Sin identificación') model_key,
         COUNT(*) samples,
         COUNT(DISTINCT m.instance_id) instances,
         SUM(CASE WHEN m.ready=1 AND m.started=1 AND m.state='running'
@@ -55,12 +55,25 @@ function miner_trial_history_compare(): array
         MAX(m.observed_at) last_utc
       FROM miner_observations m
       INNER JOIN group_state g ON g.id=m.group_id
+      LEFT JOIN (
+          -- A missing model may inherit identity ONLY if the same instance
+          -- had exactly one known GPU on that same local day.
+          SELECT group_id,instance_id,
+                 DATE(observed_at - INTERVAL 5 HOUR) local_day,
+                 CASE WHEN COUNT(DISTINCT NULLIF(gpu_model,''))=1
+                      THEN MAX(NULLIF(gpu_model,'')) ELSE NULL END gpu_model
+          FROM miner_observations
+          WHERE observed_at>=UTC_TIMESTAMP()-INTERVAL 8 DAY
+          GROUP BY group_id,instance_id,local_day
+      ) identified
+        ON identified.group_id=m.group_id AND identified.instance_id=m.instance_id
+       AND identified.local_day=DATE(m.observed_at - INTERVAL 5 HOUR)
       WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 8 DAY
         AND DATE(m.observed_at - INTERVAL 5 HOUR)
             >=DATE(UTC_TIMESTAMP() - INTERVAL 5 HOUR)-INTERVAL 6 DAY
       GROUP BY day_cancun,g.id,g.organization,g.project_name,g.group_name,
-               g.priority,gpu_model
-      ORDER BY day_cancun DESC,g.organization,g.project_name,g.group_name,gpu_model
+               g.priority,model_key
+      ORDER BY day_cancun DESC,g.organization,g.project_name,g.group_name,model_key
       LIMIT 601";
     $rows=miner_db()->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     $partial=count($rows)>600;
