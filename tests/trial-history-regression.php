@@ -29,6 +29,6 @@ trial_assert(str_contains($page,'Prioridad mostrada: actual del grupo.'),'Histor
 $source=file_get_contents(__DIR__.'/../app/trial-history.php');
 trial_assert(str_contains($source,'miner_observations')&&str_contains($source,'group_state'),'Read-only historical sources changed');
 trial_assert(str_contains($source,"COUNT(DISTINCT NULLIF(gpu_model,''))=1"),'Metric-less GPU attribution must require unique identified model');
-trial_assert(str_contains($page,"miner_h($entry['project'])"),'Project hidden from history comparisons');
+trial_assert(str_contains($page,'Proyecto:'),'Project hidden from history comparisons');
 trial_assert(!str_contains($source,'INSERT INTO')&&!str_contains($source,'UPDATE group_state'),'Comparison must be read only');
 echo "TRIAL_HISTORY_REGRESSION_OK\n";
