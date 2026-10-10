@@ -298,4 +298,49 @@ $clockFuture=miner_monitor_live_hashrate([[
  'instances'=>[$measuredNode('h1',158.13,'2026-10-09 21:18:00')]
 ]],$summaryTargets,$summaryNow);
 monitor_assert($clockFuture['ths']===null,'Future timestamps must be excluded');
+// Production-only presentation must preserve the original GPU order,
+// hide empty, zero, stale and unready replicas, and not change billed inventory.
+$viewNow=strtotime('2026-10-10T02:05:00Z');
+$makeViewNode=static fn(string $id,?float $hash,string $at='2026-10-10 02:04:30',bool $ready=true):array=>[
+    'id'=>$id,'ready'=>$ready,'state'=>$ready?'running':'pending',
+    'metric'=>$hash===null?null:['hashrate_ths'=>$hash,'at'=>$at]
+];
+$viewGroup=['recent'=>true,'state'=>'running','instances'=>[
+    $makeViewNode('first',80.0),$makeViewNode('empty',null),
+    $makeViewNode('second',151.2),$makeViewNode('zero',0.0),
+    $makeViewNode('old',99.0,'2026-10-10 01:40:00'),
+    $makeViewNode('not-ready',130.0,'2026-10-10 02:04:30',false),
+    $makeViewNode('third',75.0)
+]];
+$shown=miner_monitor_producing_nodes($viewGroup,$viewNow);
+monitor_assert(array_column($shown,'id')===['first','second','third'],
+    'Only producing cards should appear, in unchanged input order');
+monitor_assert(count($viewGroup['instances'])===7,
+    'Filtering must not mutate the underlying inventory');
+monitor_assert(miner_monitor_producing_nodes([
+    'recent'=>true,'state'=>'allocating','instances'=>[
+        $makeViewNode('new',null,'2026-10-10 02:04:30',false)
+    ]
+],$viewNow)===[], 'Awaiting GPU allocation must have no card');
+$reacquired=[
+    'recent'=>true,'state'=>'running','instances'=>[
+        $makeViewNode('new',null),$makeViewNode('already-producing',112.25)
+    ]
+];
+monitor_assert(array_column(miner_monitor_producing_nodes($reacquired,$viewNow),'id')
+    ===['already-producing'], 'Newly assigned GPU without proof of production remains hidden');
+$reacquired['instances'][0]=$makeViewNode('new',83.75);
+monitor_assert(array_column(miner_monitor_producing_nodes($reacquired,$viewNow),'id')
+    ===['new','already-producing'], 'GPU automatically reappears in source order once positive TH/s is measured');
+
+monitor_assert(miner_monitor_producing_nodes(
+    array_replace($viewGroup,['state'=>'not_listed']),$viewNow)===[],
+    'Closed/absent groups must have no producing cards');
+monitor_assert(miner_monitor_producing_nodes(
+    array_replace($viewGroup,['recent'=>false]),$viewNow)===[],
+    'Stale groups must have no producing cards');
+monitor_assert(miner_monitor_producing_nodes(
+    array_replace($viewGroup,['instances'=>[$makeViewNode('zero',0.0)]]),$viewNow)===[],
+    'A real zero TH/s reading has no production card');
+
 echo "PASS dynamic-monitor-regression\n";

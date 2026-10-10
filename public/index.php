@@ -330,14 +330,26 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <div><strong><?= (int)$monitorData['stats']['observed'] ?></strong><small>Instancias observadas</small></div>
 <div><strong><?= (int)$monitorData['stats']['ready'] ?></strong><small>Contenedores listos</small></div></div>
 <p class="muted">En espera: <?= (int)$monitorData['stats']['waiting'] ?>. El color de rendimiento es una <strong>referencia de TH/s</strong> para minería PRL con RTX 4070 Ti SUPER Low, no una afirmación de rentabilidad neta en USD. El automático de Hache Natación permanece activo e independiente.</p>
-<?php if (!$monitorData['groups']): ?><p class="muted">No hay grupos reportados durante las últimas ocho horas. Verifica la recolección o Configuración.</p><?php endif; ?>
+<?php
+// Filtrar solo la vista de tarjetas; el inventario, las tarifas, los totales
+// y las reglas de reasignación siguen calculándose con los datos completos.
+$producingGroups=[];
+$displayNow=time();
+foreach($monitorData['groups'] as $group){
+    $producingNodes=miner_monitor_producing_nodes($group,$displayNow);
+    if($producingNodes===[])continue;
+    $group['production_nodes']=$producingNodes;
+    $producingGroups[]=$group;
+}
+?>
+<?php if (!$producingGroups): ?><p class="muted">No hay GPU con producción individual reciente. Los grupos sin producción siguen disponibles en Estado de recolección; el costo horario estimado continúa contabilizando las GPU asignadas aunque no tengan TH/s.</p><?php endif; ?>
 <?php foreach($monitorData['targets'] as $t):
  $org=(string)$t['organization_slug'];$project=(string)$t['project_slug'];$count=0;
- foreach($monitorData['groups'] as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
+ foreach($producingGroups as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
  if($count===0)continue;
 ?>
-<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos reportados en 8 h</small></h3>
-<?php foreach($monitorData['groups'] as $g):
+<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos con producción</small></h3>
+<?php foreach($producingGroups as $g):
  if($g['organization']!==$org||$g['project_name']!==$project)continue;
 ?>
 <article class="monitor-entry monitor-entry--<?= miner_h($g['signal']) ?>">
@@ -360,7 +372,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php else: ?><p class="muted">Sin instancias en el último sondeo confirmado. Puede estar asignando máquinas o haberse cerrado la réplica.</p><?php endif; ?>
 <?php endif; ?>
 <div class="monitor-node-grid">
-<?php foreach($g['instances'] as $node):
+<?php foreach($g['production_nodes'] as $node):
  $signal=$node['signal'];$m=$node['metric'];
  $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
  $cooldown=$manualCooldown[$fingerprint]??0;

@@ -308,6 +308,34 @@ function miner_monitor_live_hashrate(array $groups,array $targets,int $now): arr
 }
 
 /**
+ * GPU cards are a production-only view, never an inventory or billing source.
+ * Preserve Salad/group/instance order; do not sort by hashrate.
+ * Only show a currently running, ready instance with a recent positive
+ * individual TH/s reading. Zero or missing readings stay in diagnostics.
+ */
+function miner_monitor_producing_nodes(array $group, ?int $now=null): array {
+    if(empty($group['recent']) || strtolower((string)($group['state']??''))!=='running')return [];
+    $now=$now??time();
+    $nodes=[];
+    foreach($group['instances']??[] as $node) {
+        if(!is_array($node) || empty($node['ready'])
+           || strtolower((string)($node['state']??''))!=='running')continue;
+        $metric=$node['metric']??null;
+        if(!is_array($metric))continue;
+        $hash=$metric['hashrate_ths']??null;
+        if(!is_numeric($hash) || !is_finite((float)$hash)
+            || (float)$hash<=0 || (float)$hash>20000)continue;
+        $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',
+            (string)($metric['at']??''),new DateTimeZone('UTC'));
+        if($date===false)continue;
+        $age=$now-$date->getTimestamp();
+        if($age < -120 || $age > 600)continue;
+        $nodes[]=$node;
+    }
+    return $nodes;
+}
+
+/**
  * Current RUNNING/ready GPUs x explicitly configured Salad class/priority
  * tariffs. Independent of TH/s and never a claim of official Salad billing.
  * Stale nodes, disabled projects, allocations and missing rates do not become
