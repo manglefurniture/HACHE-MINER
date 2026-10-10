@@ -36,8 +36,8 @@ function miner_monitor_log_metric(string $line): ?array {
     // Genuine SRBMiner table rows can start with "#0 RTX 4070 Laptop Gpu"
     // (no "GPU0" prefix) and may omit watts/fan/temperature. Anchor to the
     // beginning of the log after its timestamp: do not match pool/share text.
-    $table='/^(?:\\[[^\\]\\r\\n]{1,90}\\]\\s*)?(?:GPU\\s*#?\\d{1,2}\\s+)?#\\d{1,2}\\s+'
-          .'(?<gpu>[^\\r\\n]{3,120}?)\\s+(?<hash>\\d+(?:\\.\\d+)?)\\s+TH\\/s\\b/i';
+    $table='/^(?:\[[^\]\r\n]{1,90}\]\s*)?(?:GPU\s*#?\d{1,2}\s+)?#\d{1,2}\s+'
+          .'(?<gpu>[^\r\n]{3,120}?)\s+(?<hash>\d+(?:\.\d+)?)\s+TH\/s\b/i';
     if(preg_match($strict,$clean,$m)) {
         $match=$m;
     } elseif(preg_match($table,$clean,$m)) {
