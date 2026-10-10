@@ -182,3 +182,5 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - La prioridad se obtiene de `group_state`: **es la prioridad actual, NO la prioridad histórica**. Si un grupo cambió de Lowest a Low/Medium, no puede atribuirse cada muestra a esa prioridad sin una modificación posterior del esquema que registre transiciones. El panel lo advierte.
 - No se inventa PRL por GPU. Kryptex observa saldos **por dirección**, y varias GPU pueden compartirla. No se modifica el recolector, la política de reasignación automática, los Container Groups, ni la facturación.
 - El listado usa lecturas de los últimos siete días Cancún, limita respuesta a 600 filas y señala truncamientos. No añade consultas externas ni procesos nuevos.
+
+**Protección de identidad para muestras incompletas:** una muestra sin modelo explícito solo se asocia a la GPU si la misma instancia y día Cancún tienen exactamente un modelo conocido. Ante múltiples modelos no se asume una GPU. La tabla muestra el proyecto de Salad para distinguir grupos que comparten nombre.
