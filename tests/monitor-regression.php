@@ -33,6 +33,31 @@ monitor_assert(miner_monitor_log_metric('GPU 0 accepted share 80 TH/s')===null,'
 monitor_assert(miner_monitor_log_metric('GPU 0 average 15 min 80 TH/s')===null,'Rolling average is not individual instant GPU hashrate');
 monitor_assert(miner_monitor_log_metric('GPU 0 RTX 4070 Laptop GPU 80 MH/s')===null,'Wrong units cannot be called TH/s');
 
+// Production shape (sanitized diagnostic of INTERACTIVE/prl-2sesiones):
+// [timestamp] #0 RTX 4070 Laptop Gpu <number> TH/s <optional metadata>.
+// This is a GPU table row, not a pool hashrate and not a rolling average.
+$indexed=miner_monitor_log_metric('[2026-10-10 01:04:19] #0 RTX 4070 Laptop Gpu 79.80 TH/s 87W 0.92 52% 61C');
+monitor_assert($indexed!==null && $indexed['hashrate_ths']===79.8
+    && str_contains($indexed['gpu'],'RTX 4070 Laptop') && $indexed['watts']===87.0,
+    'SRBMiner index-first table row from actual Salad logs');
+$indexedNoW=miner_monitor_log_metric('[2026-10-10 01:04:19] #1 Radeon RX 6800 64.35 TH/s stable');
+monitor_assert($indexedNoW!==null && $indexedNoW['hashrate_ths']===64.35
+    && $indexedNoW['watts']===null,'Index-first rows need no power metadata or fixed GPU model');
+monitor_assert(miner_monitor_log_metric('GPU0 #0 RTX 4070 Laptop Gpu 80.7 TH/s')!==null,
+    'GPU0 #0 table row without watts must be accepted');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 Pool total 173 TH/s')===null,
+    'Pool totals cannot masquerade as index-first GPU rows');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 average 15 min 81 TH/s')===null,
+    'Rolling averages cannot masquerade as index-first GPU rows');
+monitor_assert(miner_monitor_log_metric('share accepted: #0 RTX 4070 Laptop Gpu 88 TH/s')===null,
+    'Embedded share statistics cannot masquerade as start-of-line table rows');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 15 min 81 TH/s')===null,
+    'Window summaries without the word average are not GPUs');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 worker 1 80 TH/s')===null,
+    'Worker summary is not a physical GPU');
+monitor_assert(miner_monitor_log_metric('[2026-10-10 01:04:19] #0 RTX 4070 Laptop Gpu 88 MH/s')===null,
+    'Other units must not be counted as TH/s');
+
 monitor_assert(miner_monitor_average_15m('GPU0 190 TH/s')===null,'instantaneous not averaged');
 
 $nodeA=['instance_id'=>'a-111','machine_id'=>'machine-a','state'=>'running','ready'=>true,'started'=>true,'update_time'=>'2026-10-09T18:40:00Z'];
