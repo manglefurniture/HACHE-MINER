@@ -649,7 +649,7 @@ foreach($monitorData['groups'] as $group){
 <?php foreach($trialHistory['rows'] as $entry): ?><tr>
 <td data-label="Día"><?= miner_h($entry['day']) ?></td>
 <td data-label="Organización"><?= miner_h(strtoupper($entry['organization'])) ?></td>
-<td data-label="Grupo / GPU"><strong><?= miner_h($entry['group']) ?></strong><br><small><?= miner_h($entry['gpu']) ?></small></td>
+<td data-label="Grupo / GPU"><strong><?= miner_h($entry['group']) ?></strong><br><small>Proyecto: <?= miner_h($entry['project']) ?> · GPU: <?= miner_h($entry['gpu']) ?></small></td>
 <td data-label="Prioridad actual"><?= miner_h($entry['priority_current']) ?></td>
 <td data-label="Nodos distintos"><?= (int)$entry['instances'] ?></td>
 <td data-label="Muestras"><?= (int)$entry['samples'] ?></td>
