@@ -88,7 +88,7 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
  */
 function miner_poll_mark_unlisted_groups(string $org,string $project,array $listedNames): void {
     $db=miner_db();
-    $rows=$db->prepare("SELECT id,group_name FROM group_state WHERE organization=? AND project_name=? AND state<>'not_listed'");
+    $rows=$db->prepare("SELECT id,group_name FROM group_state WHERE organization=? AND project_name=? AND state<>'not_listed' AND last_seen_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE");
     $rows->execute([$org,$project]);
     $mark=$db->prepare("UPDATE group_state SET state='not_listed',last_seen_at=UTC_TIMESTAMP() WHERE id=?");
     foreach($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
