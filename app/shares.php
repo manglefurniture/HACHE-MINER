@@ -33,6 +33,13 @@ function miner_share_instance_counters(array $logs,array $nodes,?int $now=null):
     $now??=time();
     usort($logs,static fn($a,$b)=>strcmp((string)($b['time']??$b['timestamp']??''),(string)($a['time']??$a['timestamp']??'')));
     $found=[];
+    $startById=[];
+    foreach ($nodes as $node) {
+        if (!is_array($node))continue;
+        $id=(string)($node['instance_id']??$node['id']??'');
+        $started=strtotime((string)($node['update_time']??''));
+        if ($id!=='' && $started!==false)$startById[$id]=$started;
+    }
     foreach (array_slice($logs,0,300) as $item) {
         if (!is_array($item))continue;
         $ts=strtotime((string)($item['time']??$item['timestamp']??''));
@@ -41,6 +48,9 @@ function miner_share_instance_counters(array $logs,array $nodes,?int $now=null):
         if ($count===null)continue;
         $id=miner_monitor_log_instance($item,$nodes);
         if ($id===null || isset($found[$id]))continue;
+        // Even a labeled log may be older than the newest running node state.
+        // Reallocation/old worker summaries must never seed a new counter.
+        if (!isset($startById[$id]) || $ts<$startById[$id]-30)continue;
         $found[$id]=$count+['log_at'=>gmdate('Y-m-d H:i:s',$ts)];
     }
     return $found;
