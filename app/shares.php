@@ -237,3 +237,27 @@ function miner_share_learning_dashboard(): array
         ORDER BY m.observed_at DESC,m.id DESC LIMIT 6000")->fetchAll(PDO::FETCH_ASSOC);
     return miner_share_analyze($samples,$hash,time());
 }
+
+/**
+ * The learning panel is OPTIONAL. A missing/older column, database resource
+ * limit, or a faulty third-party log must never take the authenticated
+ * monitor, historic TH/s tables, or session offline.
+ */
+function miner_share_learning_safe(callable $read): array
+{
+    try {
+        $data=$read();
+        if (!is_array($data) || !is_array($data['groups']??null)
+            || !is_array($data['devices']??null)) {
+            throw new UnexpectedValueException('invalid optional learning data');
+        }
+        $data['unavailable']=false;
+        return $data;
+    } catch(Throwable $e) {
+        // Never emit SQL text, input, DB credentials or instance identifiers.
+        $code=preg_replace('/[^A-Za-z0-9]/','',(string)$e->getCode())??'';
+        error_log('[hache-miner] optional-shares-unavailable '.get_class($e).' code='.substr($code,0,12));
+        return ['groups'=>[],'devices'=>[],'unavailable'=>true,
+            'share_difficulty_verified'=>false,'alert_mode'=>'informational_only'];
+    }
+}
