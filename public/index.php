@@ -85,7 +85,10 @@ try {
                     $st=miner_db()->prepare('INSERT IGNORE INTO wallets (organization,coin,label,address) VALUES (?,?,?,?)');$st->execute([$org,'PRL',$label,$address]);
                     miner_audit($uid,'wallet_added',$org);
                 } elseif ($action==='rate') {
-                    $org=(string)($_POST['organization']??'');$gpu=trim((string)($_POST['gpu_class']??''));
+                    $org=(string)($_POST['organization']??'');
+                    $chosenClass=trim((string)($_POST['gpu_class']??''));
+                    $newClass=trim((string)($_POST['gpu_class_custom']??''));
+                    $gpu=$newClass!==''?$newClass:$chosenClass;
                     $priority=(string)($_POST['priority']??'');$rate=miner_finite_decimal($_POST['usd_per_hour']??null);
                     if (!miner_known_salad_org($org) || !in_array($priority,['low','medium','high'],true) || strlen($gpu)>120 || $gpu==='' || $rate===null || (float)$rate>100) throw new InvalidArgumentException('Tarifa inválida.');
                     $st=miner_db()->prepare('INSERT INTO gpu_rates (organization,gpu_class,priority,usd_per_hour) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE usd_per_hour=VALUES(usd_per_hour),effective_at=CURRENT_TIMESTAMP');
@@ -135,7 +138,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -192,6 +195,11 @@ try {
         }
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='settings') {
+            // Historical Salad class IDs, not GPU models inferred from mining logs.
+            // This query has no age cutoff and includes stopped / retired groups.
+            $classRows=miner_db()->query("SELECT DISTINCT gpu_class FROM group_state
+                WHERE gpu_class IS NOT NULL AND gpu_class<>''")->fetchAll(PDO::FETCH_ASSOC);
+            $gpuClassOptions=miner_gpu_rate_class_choices($classRows,$rates);
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
         }
@@ -611,7 +619,17 @@ foreach($monitorData['groups'] as $group){
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Etiqueta','label');field('Dirección PRL','address');?><button name="action" value="wallet">Agregar dirección</button></form>
 <?php foreach($wallets as $w): ?><p><?= miner_h($w['organization'].' · '.$w['label']) ?><small> <?= miner_h(substr($w['address'],0,12)) ?>…</small></p><?php endforeach; ?></section>
 <section class="card"><h2>Tarifas de GPU</h2><p class="muted">No se asignan precios por defecto. Introducir solo tarifas confirmadas.</p>
-<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Clase de GPU (ID de Salad)','gpu_class'); ?>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect(); ?>
+<label>Clase de GPU (ID de Salad)
+<select name="gpu_class">
+<option value="">Seleccionar GPU utilizada anteriormente</option>
+<?php foreach($gpuClassOptions as $gpuClass): ?>
+<option value="<?= miner_h($gpuClass) ?>"><?= miner_h($gpuClass) ?></option>
+<?php endforeach; ?>
+</select></label>
+<label>Otra GPU (opcional, si todavía no aparece en la lista)
+<input type="text" name="gpu_class_custom" maxlength="120" autocomplete="off" placeholder="ID exacto de Salad"></label>
+<p class="muted">Clases registradas en los grupos de Salad y en tarifas guardadas, incluso grupos antiguos. La opción manual prevalece sobre la selección cuando se completa. Utiliza el ID exacto; el nombre visible del minero no sirve como identificador para calcular costos.</p>
 <select name="priority"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
 <?php field('USD por hora','usd_per_hour','number','0.130000'); ?><button name="action" value="rate">Guardar tarifa</button></form>
 <?php foreach($rates as $r): ?><p class="muted"><?= miner_h($r['organization'].' · '.$r['gpu_class'].' · '.$r['priority'].' · $'.$r['usd_per_hour'].'/h') ?></p><?php endforeach; ?></section>
