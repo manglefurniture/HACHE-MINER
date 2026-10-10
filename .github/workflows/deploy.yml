@@ -30,6 +30,7 @@ jobs:
           php tests/kryptex-regression.php
           php tests/pool-observation-regression.php
           php tests/monitor-regression.php
+          php tests/trial-history-regression.php
           php tests/reallocation-regression.php
           php tests/interactive-auto-regression.php
           php tests/accounting-regression.php
