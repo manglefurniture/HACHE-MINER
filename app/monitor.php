@@ -526,7 +526,9 @@ function miner_monitor_inventory(): array {
             :(in_array('yellow',$signals,true)?'yellow'
               :(count($signals)>0 && count(array_filter($signals,static fn($s)=>$s==='green'))===count($signals)?'green':'neutral'));
         $group['classification']=miner_monitor_status((string)$group['state'],$recent,$desired,$observed,$ready);
-        if($recent) {
+        // Removed/unverified groups can remain visible for context, but their
+        // old desired replicas are not live GPU requests or confirmed waiting.
+        if($recent && $showable) {
             $stats['current_groups']++;
             $stats['desired']+=$desired;$stats['observed']+=$observed;$stats['ready']+=$ready;
             if ($ready<$desired) $stats['waiting']+=$desired-$ready;
