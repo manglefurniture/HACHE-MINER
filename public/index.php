@@ -4,6 +4,7 @@ require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/diagnostics.php';
 require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
+require_once dirname(__DIR__).'/app/trial-history.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/accounting.php';
 require_once dirname(__DIR__).'/app/salad-credits.php';
@@ -138,7 +139,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -194,6 +195,7 @@ try {
             }
         }
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
+        if ($page==='history') $trialHistory=miner_trial_history_compare();
         if ($page==='settings') {
             // Historical Salad class IDs, not GPU models inferred from mining logs.
             // This query has no age cutoff and includes stopped / retired groups.
@@ -636,6 +638,27 @@ foreach($monitorData['groups'] as $group){
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
+<section class="card">
+<h2>Comparación de GPU · últimos siete días</h2>
+<p class="muted">Fechas de Cancún; una fila por organización, grupo y modelo GPU. Las muestras se guardan por instancia en MariaDB aunque se reasigne el nodo. Se cuentan lecturas con hashrate individual válido, no tiempo ininterrumpido ni PRL por tarjeta. El promedio TH/s no incluye muestras sin medición.</p>
+<p class="muted"><strong>Prioridad mostrada: actual del grupo.</strong> Si cambió de Lowest a Low/Medium, la tabla no certifica la prioridad histórica de esas observaciones. Para pruebas con cambios de prioridad, comparar los tramos a partir de los registros de configuración de Salad.</p>
+<?php if($trialHistory['partial']): ?><p class="warn">Se muestra un máximo de 600 filas. Este listado es parcial.</p><?php endif; ?>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Día Cancún</th><th>Organización</th><th>Grupo / GPU</th><th>Prioridad actual</th><th>Instancias diferentes</th><th>Muestras totales</th><th>Lecturas con TH/s</th><th>TH/s medio</th></tr></thead>
+<tbody>
+<?php foreach($trialHistory['rows'] as $entry): ?><tr>
+<td data-label="Día"><?= miner_h($entry['day']) ?></td>
+<td data-label="Organización"><?= miner_h(strtoupper($entry['organization'])) ?></td>
+<td data-label="Grupo / GPU"><strong><?= miner_h($entry['group']) ?></strong><br><small>Proyecto: <?= miner_h($entry['project']) ?> · GPU: <?= miner_h($entry['gpu']) ?></small></td>
+<td data-label="Prioridad actual"><?= miner_h($entry['priority_current']) ?></td>
+<td data-label="Nodos distintos"><?= (int)$entry['instances'] ?></td>
+<td data-label="Muestras"><?= (int)$entry['samples'] ?></td>
+<td data-label="Lecturas válidas"><?= (int)$entry['observed'] ?></td>
+<td data-label="TH/s medio"><?= $entry['avg_ths']===null?'Sin medición':miner_h(number_format($entry['avg_ths'],2,'.',',')) ?></td>
+</tr><?php endforeach; ?>
+</tbody></table></div>
+<?php if(!$trialHistory['rows']): ?><p class="muted">El recolector aún no ha registrado observaciones dentro de los siete días seleccionados.</p><?php endif; ?>
+</section>
 <div class="grid"><section class="card"><h2>Últimos ciclos</h2><div class="tablewrap mobile-stack"><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
 <?php foreach($runs as $r): ?><tr><td data-label="Fuente"><?= miner_h($r['source_name']) ?></td><td data-label="UTC"><?= miner_h($r['observed_at']) ?></td><td data-label="Estado"><?= miner_h($r['status']) ?></td><td data-label="Detalle"><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
 <section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
