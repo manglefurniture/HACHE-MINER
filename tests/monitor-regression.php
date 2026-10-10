@@ -11,6 +11,31 @@ monitor_assert(miner_monitor_status('pending',true,4,0,0)==='esperando','pending
 monitor_assert(miner_monitor_status('stopped',true,4,0,0)==='detenido','stopped group');
 monitor_assert(miner_monitor_status('running',false,4,4,4)==='sin_lectura','stale is not healthy');
 monitor_assert(miner_monitor_status('running',true,0,0,0)==='sin_replicas','zero configured');
+monitor_assert(miner_monitor_status('not_listed',true,1,0,0)==='no_figura_en_salad',
+    'Removed Salad groups must not be shown as active');
+monitor_assert(miner_monitor_status('unverified',true,1,0,0)==='sin_confirmacion',
+    'API instance list errors must never imply running GPUs');
+// Screenshot regression: a deleted GPU still had 114.74 TH/s in an older
+// 15-minute observation while the group continued to report running.
+$oldSnapshot='2026-10-10 01:42:05';
+$newSnapshot='2026-10-10 01:47:05';
+$ghostId='10f39615-ba14-4b79-9a43-0a617018425f';
+$previous=[[
+    'id'=>$ghostId,'observed_at'=>$oldSnapshot,'ready'=>true,'state'=>'running',
+    'metric'=>['hashrate_ths'=>114.74,'at'=>$oldSnapshot]
+]];
+monitor_assert(miner_monitor_current_snapshot_nodes($previous,$newSnapshot)===[],
+    'Closed instance must disappear on next successful (empty) Salad snapshot');
+$stillPresent=[
+    ['id'=>'live','observed_at'=>$newSnapshot,'ready'=>true,'state'=>'running'],
+    $previous[0]
+];
+$current=miner_monitor_current_snapshot_nodes($stillPresent,$newSnapshot);
+monitor_assert(count($current)===1 && $current[0]['id']==='live',
+    'Current replica must show without resurrecting a replaced instance ID');
+monitor_assert(miner_monitor_current_snapshot_nodes($stillPresent,'')===[],
+    'No successful snapshot timestamp cannot confirm GPU activity');
+
 $line="\x1B[0m[2026-10-09 16:00:00] \x1B[1mGPU0 #0 RTX 4070 Ti SUPER 160.25 TH/s 254.0W 0.63 88% 69C\x1B[0m";
 $metric=miner_monitor_log_metric($line);
 monitor_assert(is_array($metric) && $metric['hashrate_ths']===160.25,'SRBMiner line metrics');
