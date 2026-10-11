@@ -356,23 +356,23 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php
 // Filtrar solo la vista de tarjetas; el inventario, las tarifas, los totales
 // y las reglas de reasignación siguen calculándose con los datos completos.
-$producingGroups=[];
-$displayNow=time();
-foreach($monitorData['groups'] as $group){
-    $producingNodes=miner_monitor_producing_nodes($group,$displayNow);
-    if($producingNodes===[])continue;
-    $group['production_nodes']=$producingNodes;
-    $producingGroups[]=$group;
+$monitorGroups=[];
+foreach($monitorData['groups'] as $group) {
+    // A confirmed Salad group is visible even without attributed PRL telemetry.
+    // Old/stopped/removed groups do not masquerade as active resources.
+    if (!$group['recent'] || in_array(strtolower((string)$group['state']),
+        ['not_listed','stopped','stopping','disabled'],true)) continue;
+    $monitorGroups[]=$group;
 }
 ?>
-<?php if (!$producingGroups): ?><p class="muted">No hay GPU con producción individual reciente. Los grupos sin producción siguen disponibles en Estado de recolección; el costo horario estimado continúa contabilizando las GPU asignadas aunque no tengan TH/s.</p><?php endif; ?>
+<?php if (!$monitorGroups): ?><p class="muted">No hay grupos recientes confirmados por Salad. Revisa el acceso API y el último ciclo en Diagnósticos.</p><?php endif; ?>
 <?php foreach($monitorData['targets'] as $t):
  $org=(string)$t['organization_slug'];$project=(string)$t['project_slug'];$count=0;
- foreach($producingGroups as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
- if($count===0)continue;
+ foreach($monitorGroups as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
 ?>
-<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos con producción</small></h3>
-<?php foreach($producingGroups as $g):
+<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos observados</small></h3>
+<?php if($count===0): ?><p class="muted">Sin grupos recientes de esta organización/proyecto. <a href="/?page=diagnostics">Revisar Diagnósticos</a>.</p><?php endif; ?>
+<?php foreach($monitorGroups as $g):
  if($g['organization']!==$org||$g['project_name']!==$project)continue;
 ?>
 <article class="monitor-entry monitor-entry--<?= miner_h($g['signal']) ?>">
@@ -381,6 +381,9 @@ foreach($monitorData['groups'] as $group){
  <div class="monitor-group-total"><strong><?= $g['total_ths']!==null ? miner_h(number_format($g['total_ths'],2,'.','')).' TH/s':'Sin total verificable' ?></strong>
  <small><?= (int)$g['ready'] ?> listas / <?= (int)$g['desired_replicas'] ?> solicitadas</small></div>
 </div>
+<?php if($g['recent'] && (int)$g['ready'] < (int)$g['desired_replicas']): ?>
+<p class="muted"><?= (int)$g['desired_replicas']-(int)$g['ready'] ?> réplicas solicitadas aún no confirmadas como listas por Salad.</p>
+<?php endif; ?>
 <?php if(!$g['recent']): ?><p class="muted">Grupo reportado en las últimas ocho horas, pero su última consulta no es reciente. Las mediciones no se presentan como actuales.</p><?php endif; ?>
 <?php if($g['group_log_observation']!==null): ?>
 <div class="monitor-group-evidence" role="note">
@@ -395,7 +398,7 @@ foreach($monitorData['groups'] as $group){
 <?php else: ?><p class="muted">Sin instancias en el último sondeo confirmado. Puede estar asignando máquinas o haberse cerrado la réplica.</p><?php endif; ?>
 <?php endif; ?>
 <div class="monitor-node-grid">
-<?php foreach($g['production_nodes'] as $node):
+<?php foreach($g['instances'] as $node):
  $signal=$node['signal'];$m=$node['metric'];
  $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
  $cooldown=$manualCooldown[$fingerprint]??0;
