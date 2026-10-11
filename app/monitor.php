@@ -366,6 +366,7 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
             ||strtolower((string)($g['state']??''))!=='running')continue;
         $class=(string)($g['gpu_class']??'');
         $priority=strtolower((string)($g['priority']??''));
+        if($priority==='batch')$priority='lowest';
         $rate=$prices[$org."\\0".$class."\\0".$priority]??null;
         foreach($g['instances']??[] as $n){
             if(!is_array($n)||empty($n['ready'])||strtolower((string)($n['state']??''))!=='running')continue;
