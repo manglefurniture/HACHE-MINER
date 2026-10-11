@@ -72,6 +72,15 @@ function miner_share_gpu_family(string $model): string
     return substr(trim(preg_replace('/\\s+/',' ',$m)??$m),0,120);
 }
 
+/**
+ * Explicitly known PRL container groups. The label is only a scope filter,
+ * never proof of actual shares or profitability.
+ */
+function miner_share_is_prl_group(string $name): bool {
+    $name=strtolower(trim($name));
+    return str_starts_with($name,'prl-') || str_starts_with($name,'guanabacoa-');
+}
+
 /** A share counter reset or missing next reading must NEVER inflate totals. */
 function miner_share_delta(?array $previous,array $current): ?array
 {
@@ -157,7 +166,7 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
     foreach ($hashRows as $r) {
         $id=(string)$r['group_id'].':'.(string)$r['instance_id'];
         if(!isset($identified[$id]))continue;
-        if(!str_starts_with(strtolower((string)($r['group_name']??'')),'prl-'))continue;
+        if(!miner_share_is_prl_group((string)($r['group_name']??'')))continue;
         $at=strtotime((string)($r['observed_at']??''));
         $rate=$r['hashrate_ths']??null;
         if ($at===false || $at>$now+120 || $at<$now-7200 ||
@@ -226,7 +235,7 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
     usort($groups,static fn($a,$b)=>strcmp($a['organization'],$b['organization']) ?: strcmp($a['gpu'],$b['gpu']));
     usort($devices,static fn($a,$b)=>($a['signal']==='watch'?-1:0)<=>($b['signal']==='watch'?-1:0) ?: strcmp($a['gpu'],$b['gpu']));
     return ['groups'=>$groups,'devices'=>array_values($devices),'share_difficulty_verified'=>false,
-        'alert_mode'=>'informational_only','sample_scope'=>'prl-prefixed groups'];
+        'alert_mode'=>'informational_only','sample_scope'=>'known PRL-prefixed or Guanabacoa groups'];
 }
 
 /** Read-only, bounded histories; no new Salad request and no schema change. */
@@ -250,6 +259,17 @@ function miner_share_learning_dashboard(): array
  * limit, or a faulty third-party log must never take the authenticated
  * monitor, historic TH/s tables, or session offline.
  */
+function miner_share_safe_error(Throwable $e): string {
+    if ($e instanceof PDOException) {
+        $code=(string)$e->getCode();
+        if($code==='42S22') return 'La base de datos no contiene una columna requerida para el histórico de shares.';
+        if($code==='42S02') return 'Falta una tabla necesaria para consultar el histórico de shares.';
+        return 'Error de consulta de MariaDB (código '.(preg_match('/^[A-Z0-9]{5}$/',$code)?$code:'no disponible').').';
+    }
+    if($e instanceof TypeError || $e instanceof ValueError) return 'Formato de datos incompatible en el cálculo de shares.';
+    return 'Error interno al consultar los shares ('.(new ReflectionClass($e))->getShortName().').';
+}
+
 function miner_share_learning_safe(callable $read): array
 {
     try {
@@ -264,7 +284,7 @@ function miner_share_learning_safe(callable $read): array
         // Never emit SQL text, input, DB credentials or instance identifiers.
         $code=preg_replace('/[^A-Za-z0-9]/','',(string)$e->getCode())??'';
         error_log('[hache-miner] optional-shares-unavailable '.get_class($e).' code='.substr($code,0,12));
-        return ['groups'=>[],'devices'=>[],'unavailable'=>true,
+        return ['groups'=>[],'devices'=>[],'unavailable'=>true,'error_reason'=>miner_share_safe_error($e),
             'share_difficulty_verified'=>false,'alert_mode'=>'informational_only'];
     }
 }
