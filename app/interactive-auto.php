@@ -98,7 +98,7 @@ function miner_auto_execute(array $candidate): string {
         $candidates=miner_auto_candidates(time());
         $matching=array_values(array_filter($candidates,static fn($c)=>$c['fingerprint']===$fp));
         if(count($matching)!==1)return 'no_longer_eligible';
-        $key=miner_shared_salad_api_key();
+        $key=miner_salad_api_key_for_org((string)$liveTarget['organization']);
         if(!$key)throw new RuntimeException('Salad credential unavailable');
         $base='https://api.salad.com/api/public/organizations/'.rawurlencode($g['organization'])
             .'/projects/'.rawurlencode($g['project_name'])
