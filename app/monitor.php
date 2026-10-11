@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
+require_once __DIR__.'/salad-gpu-prices.php';
 
 /** Separar estados de asignación de evidencia de minería. */
 function miner_monitor_status(string $groupState, bool $recent, int $desired, int $observed, int $ready): string {
@@ -564,7 +565,7 @@ function miner_monitor_inventory(): array {
     }
     unset($group);
     // Rates are catalog entries confirmed by the administrator, not invoices.
-    $rates=$db->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates')->fetchAll(PDO::FETCH_ASSOC);
+    $rates=miner_salad_current_prices($db);
     return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
         'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now),
         'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now)];
