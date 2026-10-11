@@ -277,6 +277,25 @@ function miner_shared_salad_api_key(): ?string {
     $shared=miner_get_secret('salad:api-key');
     if ($shared!==null) return $shared;
     // Read-only compatibility for installations that previously stored an
-    // organization-specific key. New keys are saved only in the shared slot.
+    // organization-specific key. Scoped overrides are handled separately.
     return miner_get_secret('salad:hache:api-key') ?? miner_get_secret('salad:interactive:api-key');
+}
+
+/**
+ * Optional organization-scoped API key. Existing shared credentials keep their
+ * original behavior unless the administrator explicitly configures an override.
+ */
+function miner_salad_api_key_for_org(string $org): ?string {
+    if (!miner_valid_salad_slug($org)) throw new InvalidArgumentException('Invalid Salad organization');
+    return miner_get_secret('salad:org:'.$org.':api-key') ?? miner_shared_salad_api_key();
+}
+
+/** Only a whitelisted stage and HTTP code reach the authenticated diagnostics. */
+function miner_salad_poll_error(Throwable $e,string $stage): string {
+    if (!in_array($stage,['groups','instances','logs'],true)) $stage='sync';
+    if (preg_match('/\\bHTTP\\s+([1-5][0-9]{2})\\b/i',$e->getMessage(),$match))
+        return $stage.' HTTP '.$match[1];
+    if (str_contains($e->getMessage(),'Paginación'))
+        return $stage.' pagination incomplete';
+    return $stage.' invalid response or unavailable';
 }

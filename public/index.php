@@ -44,6 +44,11 @@ try {
                     if ($name!=='salad:api-key') throw new InvalidArgumentException('Secreto no permitido.');
                     miner_put_secret($name,(string)($_POST['secret_value']??''));
                     miner_audit($uid,'secret_updated',$name);
+                } elseif ($action==='salad_org_secret') {
+                    $org=strtolower(trim((string)($_POST['org_slug']??'')));
+                    if (!miner_known_salad_org($org)) throw new InvalidArgumentException('Organización desconocida.');
+                    miner_put_secret('salad:org:'.$org.':api-key',(string)($_POST['secret_value']??''));
+                    miner_audit($uid,'salad_org_secret_updated',$org);
                  } elseif ($action==='salad_target_add') {
                     $org=(string)($_POST['org_slug']??'');
                     $project=(string)($_POST['project_slug']??'');
@@ -205,12 +210,11 @@ try {
                 WHERE gpu_class IS NOT NULL AND gpu_class<>''")->fetchAll(PDO::FETCH_ASSOC);
             $gpuClassOptions=miner_gpu_rate_class_choices($classRows,$rates);
             // The catalog is optional UI data; Salad outages cannot blank settings.
-            $rateKey=null;
-            try {$rateKey=miner_shared_salad_api_key();}
-            catch(Throwable $e) {error_log('[hache-miner] rate-gpu-key-unavailable '.get_class($e));}
             $rateGpuCatalogue=miner_rate_gpu_catalogue($targets,$classRows,$rates,
-                $rateKey!==null ? static fn(string $org):array=>
-                    miner_rate_fetch_salad_gpu_classes($org,$rateKey) : null);
+                static function(string $org):array {
+                    $key=miner_salad_api_key_for_org($org);
+                    return $key!==null ? miner_rate_fetch_salad_gpu_classes($org,$key) : [];
+                });
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
         }
@@ -352,23 +356,23 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php
 // Filtrar solo la vista de tarjetas; el inventario, las tarifas, los totales
 // y las reglas de reasignación siguen calculándose con los datos completos.
-$producingGroups=[];
-$displayNow=time();
-foreach($monitorData['groups'] as $group){
-    $producingNodes=miner_monitor_producing_nodes($group,$displayNow);
-    if($producingNodes===[])continue;
-    $group['production_nodes']=$producingNodes;
-    $producingGroups[]=$group;
+$monitorGroups=[];
+foreach($monitorData['groups'] as $group) {
+    // A confirmed Salad group is visible even without attributed PRL telemetry.
+    // Old/stopped/removed groups do not masquerade as active resources.
+    if (!$group['recent'] || in_array(strtolower((string)$group['state']),
+        ['not_listed','stopped','stopping','disabled'],true)) continue;
+    $monitorGroups[]=$group;
 }
 ?>
-<?php if (!$producingGroups): ?><p class="muted">No hay GPU con producción individual reciente. Los grupos sin producción siguen disponibles en Estado de recolección; el costo horario estimado continúa contabilizando las GPU asignadas aunque no tengan TH/s.</p><?php endif; ?>
+<?php if (!$monitorGroups): ?><p class="muted">No hay grupos recientes confirmados por Salad. Revisa el acceso API y el último ciclo en Diagnósticos.</p><?php endif; ?>
 <?php foreach($monitorData['targets'] as $t):
  $org=(string)$t['organization_slug'];$project=(string)$t['project_slug'];$count=0;
- foreach($producingGroups as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
- if($count===0)continue;
+ foreach($monitorGroups as $g) if($g['organization']===$org&&$g['project_name']===$project)$count++;
 ?>
-<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos con producción</small></h3>
-<?php foreach($producingGroups as $g):
+<h3 class="monitor-org-title"><?= miner_h(strtoupper($org)) ?> · <?= miner_h($project) ?> <small><?= $t['enabled']?'Lecturas habilitadas':'Pausado' ?> · <?= $count ?> grupos observados</small></h3>
+<?php if($count===0): ?><p class="muted">Sin grupos recientes de esta organización/proyecto. <a href="/?page=diagnostics">Revisar Diagnósticos</a>.</p><?php endif; ?>
+<?php foreach($monitorGroups as $g):
  if($g['organization']!==$org||$g['project_name']!==$project)continue;
 ?>
 <article class="monitor-entry monitor-entry--<?= miner_h($g['signal']) ?>">
@@ -377,6 +381,9 @@ foreach($monitorData['groups'] as $group){
  <div class="monitor-group-total"><strong><?= $g['total_ths']!==null ? miner_h(number_format($g['total_ths'],2,'.','')).' TH/s':'Sin total verificable' ?></strong>
  <small><?= (int)$g['ready'] ?> listas / <?= (int)$g['desired_replicas'] ?> solicitadas</small></div>
 </div>
+<?php if($g['recent'] && (int)$g['ready'] < (int)$g['desired_replicas']): ?>
+<p class="muted"><?= (int)$g['desired_replicas']-(int)$g['ready'] ?> réplicas solicitadas aún no confirmadas como listas por Salad.</p>
+<?php endif; ?>
 <?php if(!$g['recent']): ?><p class="muted">Grupo reportado en las últimas ocho horas, pero su última consulta no es reciente. Las mediciones no se presentan como actuales.</p><?php endif; ?>
 <?php if($g['group_log_observation']!==null): ?>
 <div class="monitor-group-evidence" role="note">
@@ -391,7 +398,7 @@ foreach($monitorData['groups'] as $group){
 <?php else: ?><p class="muted">Sin instancias en el último sondeo confirmado. Puede estar asignando máquinas o haberse cerrado la réplica.</p><?php endif; ?>
 <?php endif; ?>
 <div class="monitor-node-grid">
-<?php foreach($g['production_nodes'] as $node):
+<?php foreach($g['instances'] as $node):
  $signal=$node['signal'];$m=$node['metric'];
  $fingerprint=miner_reallocation_fingerprint($g,(string)$node['id']);
  $cooldown=$manualCooldown[$fingerprint]??0;
@@ -606,11 +613,20 @@ foreach($monitorData['groups'] as $group){
 <?php foreach($trustedDevices as $t): ?><p><?= miner_h($t['device_label']) ?> · <small>Vence <?= miner_h($t['expires_at']) ?> UTC</small></p><?php endforeach; ?>
 <?php if ($trustedDevices): ?><form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><button name="action" value="revoke_devices">Revocar todos los dispositivos</button></form><?php endif; ?>
 </section>
-<section class="card"><h2>Una clave API de Salad</h2><p class="muted">Esta clave compartida permite consultar todas las organizaciones autorizadas. Se guarda cifrada y nunca se muestra de nuevo.</p>
+<section class="card"><h2>Claves API de Salad</h2><p class="muted">La clave compartida sigue siendo la predeterminada. Puedes configurar una clave adicional por organización si la compartida no tiene acceso; ambas se guardan cifradas.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><input type="hidden" name="secret_name" value="salad:api-key">
 <?php field('Clave API compartida','secret_value','password','Solo para configurar o sustituir'); ?>
 <button name="action" value="secret">Guardar clave cifrada</button></form>
-<?php foreach($secrets as $s): ?><p class="muted"><?= $s['secret_name']==='salad:api-key'?'Clave compartida configurada': 'Clave heredada existente' ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?></section>
+<?php foreach($secrets as $s): ?><p class="muted"><?= $s['secret_name']==='salad:api-key'?'Clave compartida configurada': 'Clave heredada existente' ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?>
+<?php foreach(array_unique(array_column($targets,'organization_slug')) as $orgKey): ?>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
+<input type="hidden" name="org_slug" value="<?= miner_h($orgKey) ?>">
+<label>Clave API opcional para <?= miner_h(strtoupper($orgKey)) ?>
+<input type="password" name="secret_value" required autocomplete="off" maxlength="4096" placeholder="Conservar clave existente si se deja sin modificar"></label>
+<button name="action" value="salad_org_secret">Guardar clave de <?= miner_h(strtoupper($orgKey)) ?></button>
+</form>
+<p class="muted"><?= in_array('salad:org:'.$orgKey.':api-key',array_column($secrets,'secret_name'),true)?'Clave propia configurada · se usa antes que la compartida':'Usa la clave compartida' ?></p>
+<?php endforeach; ?></section>
 <section class="card"><h2>Organizaciones y proyectos Salad</h2>
 <p class="muted">Agrega otra organización y el proyecto que desees supervisar, sin crear una nueva clave API. Desactivar detiene las lecturas futuras sin borrar el historial.</p>
 <?php foreach ($targets as $t): ?>

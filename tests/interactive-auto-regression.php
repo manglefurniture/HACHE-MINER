@@ -35,4 +35,8 @@ auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52
 auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 4070 Ti SUPER'],false)['level']==='neutral','Unproven Quantus must never use PRL threshold');
 auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 5080'],true)['level']==='neutral','PRL threshold requires independently confirmed GPU class');
 auto_check(miner_monitor_profit_signal('quantus-trial','medium',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 4070 Ti SUPER'],true)['level']==='neutral','Low economics must not be applied to medium');
+$autoSource=file_get_contents(dirname(__DIR__).'/app/interactive-auto.php');
+auto_check(str_contains($autoSource,"miner_salad_api_key_for_org((string)\$liveTarget['organization'])"),
+    'Automatic live verification must honor the configured INTERACTIVE organization key');
+
 echo "PASS interactive-auto-regression\n";
