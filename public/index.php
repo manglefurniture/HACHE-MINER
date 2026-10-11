@@ -44,6 +44,11 @@ try {
                     if ($name!=='salad:api-key') throw new InvalidArgumentException('Secreto no permitido.');
                     miner_put_secret($name,(string)($_POST['secret_value']??''));
                     miner_audit($uid,'secret_updated',$name);
+                } elseif ($action==='salad_org_secret') {
+                    $org=strtolower(trim((string)($_POST['org_slug']??'')));
+                    if (!miner_known_salad_org($org)) throw new InvalidArgumentException('Organización desconocida.');
+                    miner_put_secret('salad:org:'.$org.':api-key',(string)($_POST['secret_value']??''));
+                    miner_audit($uid,'salad_org_secret_updated',$org);
                  } elseif ($action==='salad_target_add') {
                     $org=(string)($_POST['org_slug']??'');
                     $project=(string)($_POST['project_slug']??'');
