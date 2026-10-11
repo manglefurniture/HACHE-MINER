@@ -48,6 +48,7 @@ $rows=[trial_row($t,10),trial_row($t+300,12),trial_row($t+600,12),trial_row($t+9
        trial_row($t+1200,2),trial_row($t+1500,7),trial_row($t+1800,8)];
 $result=miner_share_analyze($rows,[],$now);
 $d=$result['devices'][0]??[];
+shcheck($d['recent_interval_shares']===1 && $d['recent_interval_minutes']===5.0,'Recent five-minute observed interval mismatch');
 shcheck($d['accepted_delta']===12 && $d['resets']===1,'Repeated or reset counters inflated accepted shares');
 shcheck($d['covered_seconds']===1500 && $d['intervals']===5,'Valid timed intervals wrong');
 shcheck($d['accepted_per_hour']===28.8,'Shares per hour not normalized to valid sample time');
