@@ -254,7 +254,8 @@ function miner_share_capture_diagnostics(array $samples,array $hashRows): array
         'counters_with_gpu'=>0,'valid_pairs'=>0,'positive_pairs'=>0,
         'latest_counter_utc'=>null,'sample_limit_reached'=>count($samples)>=12000];
     $prev=[];
-    foreach(array_reverse($samples) as $r){
+    usort($samples,static fn($a,$b)=>strcmp((string)($a['observed_at']??''),(string)($b['observed_at']??'')));
+    foreach($samples as $r){
         $id=(string)($r['group_id']??'').':'.(string)($r['instance_id']??'');
         if(!miner_share_is_prl_group((string)($r['group_name']??'')))continue;
         $counts['observations']++;
