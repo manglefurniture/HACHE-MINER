@@ -124,6 +124,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
         if(!$g){$validList=false;continue;}
         $recorded++;
         try {
+            $stage='instances';
             try {
                 $instances=miner_http_json($base.'/'.rawurlencode($g['name']).'/instances',$headers);
                 $nodes=$instances['instances']??$instances['items']??null;
@@ -161,6 +162,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             // Only attribute a hashrate to a matching instance or a provably
             // unique running node; never divide a group hashrate across replicas.
             $logs=[];$logsError=null;
+            $stage='logs';
             try {
                 $logs=miner_logs($org,$project,$g['name'],$key);
                 miner_log_save($g['id'],$logs,$nodes);
@@ -179,7 +181,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             if($logsError!==null)throw $logsError;
         } catch(Throwable $e) {
             $failed++;
-            miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',get_class($e).' during collection');
+            miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',miner_salad_poll_error($e,$stage));
         }
     }
     if($validList) {
