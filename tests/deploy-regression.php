@@ -201,8 +201,8 @@ assert_deploy(str_contains($dashboard,'miner_salad_current_prices(miner_db())'),
     'GPU rates shown in settings must come from verified Salad cache');
 assert_deploy(str_contains($dashboard,'Tarifas oficiales de Salad'),
     'Official GPU rate screen must disclose the source');
-assert_deploy(str_contains($dashboard,'miner_rate_gpu_catalogue($targets,$classRows,$legacyRates,'),
-    'Historical class reference remains available without being a billing source');
+assert_deploy(!str_contains($dashboard,'miner_rate_gpu_catalogue('),
+    'Settings must not perform a slow unused Salad GPU catalog fetch');
 assert_deploy(str_contains($poll,'miner_salad_price_for('),
     'Poller must use only official Salad rate');
 assert_deploy(!str_contains($poll,'SELECT usd_per_hour FROM gpu_rates'),
