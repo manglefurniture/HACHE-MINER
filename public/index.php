@@ -179,7 +179,6 @@ try {
         $runs=miner_db()->query('SELECT source_name,observed_at,status,detail FROM sync_runs ORDER BY id DESC LIMIT 18')->fetchAll();
         $secrets=miner_db()->query('SELECT secret_name,updated_at FROM secret_store ORDER BY secret_name')->fetchAll();
         // The legacy manual price table is not a billing source.
-        $legacyRates=miner_db()->query('SELECT organization,gpu_class,priority,usd_per_hour FROM gpu_rates ORDER BY organization,gpu_class')->fetchAll();
         $rates=miner_salad_current_prices(miner_db());
         $charges=miner_db()->query('SELECT organization,period_start,period_end,amount_usd,source_reference FROM reconciled_charges ORDER BY id DESC LIMIT 20')->fetchAll();
         if ($page==='diagnostics') $collectorDiag=miner_collector_diagnostics();
@@ -230,17 +229,8 @@ try {
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
         if ($page==='history') {$trialHistory=miner_trial_history_compare();$shareLearning=miner_share_learning_safe(static fn()=>miner_share_learning_dashboard());}
         if ($page==='settings') {
-            // Historical Salad class IDs, not GPU models inferred from mining logs.
-            // This query has no age cutoff and includes stopped / retired groups.
-            $classRows=miner_db()->query("SELECT DISTINCT organization,gpu_class FROM group_state
-                WHERE gpu_class IS NOT NULL AND gpu_class<>''")->fetchAll(PDO::FETCH_ASSOC);
-            $gpuClassOptions=miner_gpu_rate_class_choices($classRows,$legacyRates);
-            // The catalog is optional UI data; Salad outages cannot blank settings.
-            $rateGpuCatalogue=miner_rate_gpu_catalogue($targets,$classRows,$legacyRates,
-                static function(string $org):array {
-                    $key=miner_salad_api_key_for_org($org);
-                    return $key!==null ? miner_rate_fetch_salad_gpu_classes($org,$key) : [];
-                });
+            // Official verified rates are already loaded above from the local cache.
+            // Do not fetch a live GPU catalog just to display these values.
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
         }
