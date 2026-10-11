@@ -611,11 +611,20 @@ foreach($monitorData['groups'] as $group){
 <?php foreach($trustedDevices as $t): ?><p><?= miner_h($t['device_label']) ?> · <small>Vence <?= miner_h($t['expires_at']) ?> UTC</small></p><?php endforeach; ?>
 <?php if ($trustedDevices): ?><form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><button name="action" value="revoke_devices">Revocar todos los dispositivos</button></form><?php endif; ?>
 </section>
-<section class="card"><h2>Una clave API de Salad</h2><p class="muted">Esta clave compartida permite consultar todas las organizaciones autorizadas. Se guarda cifrada y nunca se muestra de nuevo.</p>
+<section class="card"><h2>Claves API de Salad</h2><p class="muted">La clave compartida sigue siendo la predeterminada. Puedes configurar una clave adicional por organización si la compartida no tiene acceso; ambas se guardan cifradas.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><input type="hidden" name="secret_name" value="salad:api-key">
 <?php field('Clave API compartida','secret_value','password','Solo para configurar o sustituir'); ?>
 <button name="action" value="secret">Guardar clave cifrada</button></form>
-<?php foreach($secrets as $s): ?><p class="muted"><?= $s['secret_name']==='salad:api-key'?'Clave compartida configurada': 'Clave heredada existente' ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?></section>
+<?php foreach($secrets as $s): ?><p class="muted"><?= $s['secret_name']==='salad:api-key'?'Clave compartida configurada': 'Clave heredada existente' ?> · <?= miner_h($s['updated_at']) ?> UTC</p><?php endforeach; ?>
+<?php foreach(array_unique(array_column($targets,'organization_slug')) as $orgKey): ?>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
+<input type="hidden" name="org_slug" value="<?= miner_h($orgKey) ?>">
+<label>Clave API opcional para <?= miner_h(strtoupper($orgKey)) ?>
+<input type="password" name="secret_value" required autocomplete="off" maxlength="4096" placeholder="Conservar clave existente si se deja sin modificar"></label>
+<button name="action" value="salad_org_secret">Guardar clave de <?= miner_h(strtoupper($orgKey)) ?></button>
+</form>
+<p class="muted"><?= in_array('salad:org:'.$orgKey.':api-key',array_column($secrets,'secret_name'),true)?'Clave propia configurada · se usa antes que la compartida':'Usa la clave compartida' ?></p>
+<?php endforeach; ?></section>
 <section class="card"><h2>Organizaciones y proyectos Salad</h2>
 <p class="muted">Agrega otra organización y el proyecto que desees supervisar, sin crear una nueva clave API. Desactivar detiene las lecturas futuras sin borrar el historial.</p>
 <?php foreach ($targets as $t): ?>
