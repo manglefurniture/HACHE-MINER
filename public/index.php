@@ -210,12 +210,11 @@ try {
                 WHERE gpu_class IS NOT NULL AND gpu_class<>''")->fetchAll(PDO::FETCH_ASSOC);
             $gpuClassOptions=miner_gpu_rate_class_choices($classRows,$rates);
             // The catalog is optional UI data; Salad outages cannot blank settings.
-            $rateKey=null;
-            try {$rateKey=miner_shared_salad_api_key();}
-            catch(Throwable $e) {error_log('[hache-miner] rate-gpu-key-unavailable '.get_class($e));}
             $rateGpuCatalogue=miner_rate_gpu_catalogue($targets,$classRows,$rates,
-                $rateKey!==null ? static fn(string $org):array=>
-                    miner_rate_fetch_salad_gpu_classes($org,$rateKey) : null);
+                static function(string $org):array {
+                    $key=miner_salad_api_key_for_org($org);
+                    return $key!==null ? miner_rate_fetch_salad_gpu_classes($org,$key) : [];
+                });
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
         }
