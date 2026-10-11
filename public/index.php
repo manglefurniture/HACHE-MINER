@@ -691,12 +691,14 @@ foreach($monitorData['groups'] as $group) {
 </tr><?php endforeach; ?></tbody></table></div>
 <?php if(!$shareLearning['groups']): ?><p class="muted">En aprendizaje: el recolector aún no tiene dos contadores acumulados válidos y atribuibles para una misma GPU.</p><?php endif; ?>
 <h3>Detalle de GPU con contadores comprobados</h3>
+<p class="muted">Último tramo ~5 min: diferencia entre dos lecturas separadas entre 4 y 6 minutos, terminada hace como máximo 10 minutos. No equivale a los últimos 5 minutos exactos ni a shares acreditados por el pool.</p>
 <div class="tablewrap mobile-stack"><table>
-<thead><tr><th>Organización / grupo</th><th>Modelo</th><th>Shares observados</th><th>Shares/h brutos</th><th>Período cubierto</th><th>Reinicios de contador</th><th>Evaluación</th></tr></thead><tbody>
+<thead><tr><th>Organización / grupo</th><th>Modelo</th><th>Shares observados</th><th>Último tramo ~5 min</th><th>Shares/h brutos</th><th>Período cubierto</th><th>Reinicios de contador</th><th>Evaluación</th></tr></thead><tbody>
 <?php foreach(array_slice($shareLearning['devices'],0,100) as $device): ?><tr>
 <td data-label="Grupo"><?= miner_h(strtoupper((string)$device['organization']).' / '.$device['group']) ?><small> · nodo …<?= miner_h(substr((string)$device['instance_id'],-8)) ?></small></td>
 <td data-label="Modelo"><?= miner_h($device['gpu']) ?></td>
 <td data-label="Shares"><?= (int)$device['accepted_delta'] ?></td>
+<td data-label="Último tramo ~5 min"><?php if($device['recent_interval_shares']!==null): ?><?= (int)$device['recent_interval_shares'] ?> <small><?= miner_h((string)$device['recent_interval_minutes']) ?> min · <?= miner_h((string)$device['recent_interval_at']) ?> UTC</small><?php else: ?>Sin lectura reciente<?php endif; ?></td>
 <td data-label="Shares/h"><?= miner_h(number_format((float)$device['accepted_per_hour'],2,'.',',')) ?></td>
 <td data-label="Cobertura"><?= miner_h((string)$device['covered_minutes']) ?> min</td>
 <td data-label="Reinicios"><?= (int)$device['resets'] ?></td>
