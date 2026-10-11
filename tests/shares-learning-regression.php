@@ -10,6 +10,19 @@ shcheck(miner_share_counters('shares: A: 22 R: 0')['accepted']===22,'Labeled A/R
 shcheck(miner_share_counters('accepted share: 16')===null,'Single accepted event mistaken for cumulative count');
 shcheck(miner_share_counters('Pool shares accepted 80000 rejected 20')===null,'Pool-wide count mistaken for GPU');
 shcheck(miner_share_counters('GPU #0 RTX 4070 Laptop 80 TH/s')===null,'GPU speed mistaken for shares');
+
+// Real SRBMiner 3.7.4 statistics from SaladCloud (anonymized CSV examples):
+// final fields are the cumulative A / R / HW counts for GPU #0.
+$laptop='[2026-10-11 01:59:20] #0  RTX 5070 Laptop Gpu 70.86 TH/s 76.0W 0.932 - 69C 2085 9001 2 0 0';
+$desktop='[2026-10-11 05:29:27] #0  RTX 5060 Ti 96.07 TH/s 180.0W 0.534 99% 70C 2752 13801 4 0 0';
+$noPower='[2026-10-10 18:27:21] #0  RTX 4060 57.98 TH/s - - 83% 80C 2505 8251 13 0 0';
+shcheck(miner_share_counters($laptop)['accepted']===2,'Laptop GPU row accepted count missing');
+shcheck(miner_share_counters($desktop)['accepted']===4,'Desktop GPU row accepted count missing');
+shcheck(miner_share_counters($noPower)['accepted']===13,'GPU with unavailable power sensor not parsed');
+shcheck(miner_share_counters('[2026-10-11 05:29:27] Share stats [100.00% / 0.00%]')===null,'Share percentages mistaken for cumulative shares');
+shcheck(miner_share_counters('[2026-10-11 05:29:27] Hashrate 96.07 TH/s 180.0W 0.534 99% 70C 2752 13801 4 0 0')===null,'Total hashrate row mistaken for a GPU');
+shcheck(miner_share_counters('[2026-10-11 05:29:27] #0 RTX 5060 Ti 96.07 TH/s 180.0W 0.534 99% 70C 2752 13801')===null,'Incomplete GPU row mistaken for accepted shares');
+shcheck(miner_share_counters('GPU0[t0] share accepted [110ms] [pearlhash][0]')===null,'Single share success event mistaken for a cumulative count');
 shcheck(miner_share_counters('shares accepted 999999999999999')===null,'Huge corrupt counter accepted');
 
 $now=strtotime('2026-10-10T20:00:00Z');
@@ -23,6 +36,14 @@ $logs=[
 ];
 $mapped=miner_share_instance_counters($logs,[$one,$two],$now);
 shcheck(count($mapped)===2 && $mapped['node-a']['accepted']===40 && $mapped['node-b']['accepted']===10,'Multi GPU shares mixed or stale counters reused');
+
+$gpuRowLogs=[
+ ['time'=>'2026-10-10T19:58:00Z','text_log'=>'[2026-10-10 19:58:00] #0 RTX 5070 Laptop Gpu 70.86 TH/s 76.0W 0.932 - 69C 2085 9001 2 0 0',
+ 'resource'=>['labels'=>['instance_id'=>'node-a']]]
+];
+$rowMapped=miner_share_instance_counters($gpuRowLogs,[$one,$two],$now);
+shcheck(($rowMapped['node-a']['accepted']??null)===2 && !isset($rowMapped['node-b']),
+ 'Attributed GPU table counters must never be assigned to another replica');
 $anonymous=miner_share_instance_counters([$logs[1]],[$one,$two],$now);
 shcheck($anonymous===[],'Anonymous multireplica shares cannot be assigned');
 $alone=miner_share_instance_counters([$logs[1]],[$one],$now);
