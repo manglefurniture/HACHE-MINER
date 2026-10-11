@@ -238,6 +238,54 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
         'alert_mode'=>'informational_only','sample_scope'=>'known PRL-prefixed or Guanabacoa groups'];
 }
 
+/**
+ * Bounded ADMIN-only coverage counts derived from the same observations used
+ * for the shares report; no external requests, credentials or instance IDs.
+ */
+function miner_share_capture_diagnostics(array $samples,array $hashRows): array
+{
+    $models=[];
+    foreach(array_merge($samples,$hashRows) as $r){
+        $id=(string)($r['group_id']??'').':'.(string)($r['instance_id']??'');
+        $gpu=miner_share_gpu_family((string)($r['gpu_model']??''));
+        if($gpu!=='')$models[$id][$gpu]=true;
+    }
+    $counts=['observations'=>0,'running'=>0,'counters'=>0,
+        'counters_with_gpu'=>0,'valid_pairs'=>0,'positive_pairs'=>0,
+        'latest_counter_utc'=>null,'sample_limit_reached'=>count($samples)>=12000];
+    $prev=[];
+    usort($samples,static fn($a,$b)=>strcmp((string)($a['observed_at']??''),(string)($b['observed_at']??'')));
+    foreach($samples as $r){
+        $id=(string)($r['group_id']??'').':'.(string)($r['instance_id']??'');
+        if(!miner_share_is_prl_group((string)($r['group_name']??'')))continue;
+        $counts['observations']++;
+        $active=(int)($r['ready']??0)===1 && (int)($r['started']??0)===1
+            && (string)($r['state']??'')==='running';
+        if($active)$counts['running']++;
+        $raw=$r['accepted_shares']??null;
+        $at=(string)($r['observed_at']??'');
+        $ts=strtotime($at);
+        $valid=$active && $ts!==false && is_numeric($raw) && (float)$raw>=0;
+        if(!$valid){unset($prev[$id]);continue;}
+        $counts['counters']++;
+        $known=count($models[$id]??[])===1;
+        if($known)$counts['counters_with_gpu']++;
+        if($counts['latest_counter_utc']===null || $at>$counts['latest_counter_utc'])
+            $counts['latest_counter_utc']=$at;
+        if($known && isset($prev[$id])){
+            $gap=$ts-$prev[$id]['ts'];
+            $value=(int)$raw;
+            if($gap>0 && $gap<=660 && $value>=$prev[$id]['counter']
+                && $value-$prev[$id]['counter']<=100000){
+                $counts['valid_pairs']++;
+                if($value>$prev[$id]['counter'])$counts['positive_pairs']++;
+            }
+        }
+        $prev[$id]=['ts'=>$ts,'counter'=>(int)$raw];
+    }
+    return $counts;
+}
+
 /** Read-only, bounded histories; no new Salad request and no schema change. */
 function miner_share_learning_dashboard(): array
 {
@@ -251,7 +299,9 @@ function miner_share_learning_dashboard(): array
         g.organization,g.project_name,g.group_name,g.priority".$base."
         WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 2 HOUR AND m.hashrate_ths>0
         ORDER BY m.observed_at DESC,m.id DESC LIMIT 6000")->fetchAll(PDO::FETCH_ASSOC);
-    return miner_share_analyze($samples,$hash,time());
+    $result=miner_share_analyze($samples,$hash,time());
+    $result['capture_coverage']=miner_share_capture_diagnostics($samples,$hash);
+    return $result;
 }
 
 /**

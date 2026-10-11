@@ -675,6 +675,18 @@ foreach($monitorData['groups'] as $group) {
 <?php elseif($page==='history'): ?>
 <section class="card">
 <h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['capture_coverage']??null)): $coverage=$shareLearning['capture_coverage']; ?>
+<p class="muted"><strong>Diagnóstico de captura (últimas 30 h):</strong>
+<?= (int)$coverage['observations'] ?> registros PRL,
+<?= (int)$coverage['running'] ?> de instancias activas,
+<?= (int)$coverage['counters'] ?> con contador aceptado,
+<?= (int)$coverage['counters_with_gpu'] ?> con GPU identificable,
+<?= (int)$coverage['valid_pairs'] ?> pares válidos,
+<?= (int)$coverage['positive_pairs'] ?> con incremento.
+Último contador: <?= miner_h((string)($coverage['latest_counter_utc']??'sin lectura')) ?> UTC.
+<?php if(!empty($coverage['sample_limit_reached'])): ?>Hay más registros que el límite de consulta: cobertura parcial.<?php endif; ?>
+Estos números son observaciones, no shares acreditados por Kryptex.</p>
+<?php endif; ?>
 <?php if(!empty($shareLearning['unavailable'])): ?><p class="muted"><strong>Datos de shares temporalmente no disponibles.</strong> <?= miner_h((string)($shareLearning['error_reason']??'La consulta no pudo completarse.')) ?> El histórico de TH/s y la minería continúan independientes.</p><?php endif; ?>
 <p class="muted">Shares aceptados extraídos de resúmenes acumulativos de SRBMiner y vinculados a una instancia comprobada. Las lecturas repetidas no se suman. Cuando el contador se reinicia, no se interpreta la diferencia como shares perdidos. Las ventanas con más de 11 minutos entre muestras se excluyen.</p>
 <p class="muted"><strong>Alertas informativas:</strong> una caída sostenida de TH/s frente a tres o más GPU comparables, o 45 minutos observados sin nuevos shares. Ninguna señal reasigna, apaga o cambia prioridades. El número bruto de shares depende de la dificultad asignada por el pool: no se compara para sancionar ni sirve para calcular PRL reales.</p>

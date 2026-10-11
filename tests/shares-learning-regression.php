@@ -57,6 +57,14 @@ for($i=0;$i<7;$i++){
 $withHashes=miner_share_analyze($rows,$hashSeries,$now);
 shcheck(count($withHashes['groups'])===1 && count($withHashes['devices'])===1,
     'Timestamped peer samples must not throw or suppress share history');
+$coverage=miner_share_capture_diagnostics($rows,[]);
+shcheck($coverage['observations']===7 && $coverage['running']===7 &&
+        $coverage['counters']===7 && $coverage['counters_with_gpu']===7 &&
+        $coverage['valid_pairs']===5 && $coverage['positive_pairs']===4,
+        'Capture coverage counts or reset handling incorrect');
+$emptyCoverage=miner_share_capture_diagnostics([array_merge(trial_row($t,10),['accepted_shares'=>null])],[]);
+shcheck($emptyCoverage['observations']===1 && $emptyCoverage['counters']===0 &&
+        $emptyCoverage['valid_pairs']===0, 'Missing shares must not become zero-count shares');
 $result=miner_share_analyze($rows,[],$now);
 $d=$result['devices'][0]??[];
 $recent=miner_share_analyze($rows,[],$t+2000)['devices'][0]??[];
