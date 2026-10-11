@@ -266,7 +266,12 @@ function miner_share_safe_error(Throwable $e): string {
         if($code==='42S02') return 'Falta una tabla necesaria para consultar el histórico de shares.';
         return 'Error de consulta de MariaDB (código '.(preg_match('/^[A-Z0-9]{5}$/',$code)?$code:'no disponible').').';
     }
-    if($e instanceof TypeError || $e instanceof ValueError) return 'Formato de datos incompatible en el cálculo de shares.';
+    if($e instanceof TypeError || $e instanceof ValueError) {
+        // Safe locator only. Never expose exception messages, paths, SQL, or DB values.
+        $source=basename(str_replace('\\','/',$e->getFile()));
+        $location=$source==='shares.php'?' Código S'.(int)$e->getLine().'.':' Código externo.';
+        return 'Formato de datos incompatible en el cálculo de shares.'.$location;
+    }
     return 'Error interno al consultar los shares ('.(new ReflectionClass($e))->getShortName().').';
 }
 
