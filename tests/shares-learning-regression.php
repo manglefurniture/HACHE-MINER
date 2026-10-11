@@ -70,6 +70,11 @@ $paused=miner_share_analyze($halted,[],$now);
 shcheck(count($paused['devices'])===1 && $paused['devices'][0]['accepted_delta']===2,
     'Stopped instance must break accepted-share interval continuity');
 
+$guanabacoa=trial_row($t,10);$guanabacoa['group_name']='guanabacoa-1a';
+$guanabacoa2=trial_row($t+300,13);$guanabacoa2['group_name']='guanabacoa-1a';
+$gresult=miner_share_analyze([$guanabacoa,$guanabacoa2],[],$now);
+shcheck(($gresult['devices'][0]['accepted_delta']??null)===3,'Verified Guanabacoa PRL group excluded');
+
 shcheck($result['alert_mode']==='informational_only'&&!$result['share_difficulty_verified'],'Never enable automatic share thresholds without difficulty');
 $unsafe=trial_row($t+2100,1000,'other','');
 shcheck(miner_share_analyze([$unsafe],[],$now)['devices']===[], 'Unknown GPU model must not be attributed');
@@ -86,9 +91,13 @@ shcheck(str_contains($page,'Aprendizaje de shares por GPU') && str_contains($pag
 $healthy=miner_share_learning_safe(static fn()=>['groups'=>[['gpu'=>'RTX 4070']],'devices'=>[]]);
 shcheck($healthy['unavailable']===false && count($healthy['groups'])===1, 'Safe wrapper must preserve successful learning reads');
 $backup=miner_share_learning_safe(static fn()=>throw new PDOException('Unknown column accepted_shares','42S22'));
-shcheck($backup['unavailable']===true && $backup['groups']===[] && $backup['devices']===[] &&
+shcheck($backup['unavailable']===true && str_contains($backup['error_reason'],'Error de consulta') && $backup['groups']===[] && $backup['devices']===[] &&
     $backup['alert_mode']==='informational_only', 'Optional query failure must not cause authenticated 503');
 $index=file_get_contents(dirname(__DIR__).'/public/index.php');
 shcheck(str_contains($index,'miner_share_learning_safe(static fn()=>miner_share_learning_dashboard())'),
     'History page must use non-blocking wrapper');
+$missingColumn=new PDOException('example SQL text to never expose','42S22');
+$diagnostic=miner_share_safe_error($missingColumn);
+shcheck(str_contains($diagnostic,'columna') && !str_contains($diagnostic,'example'), 'SQL text disclosed to administrator');
+shcheck(str_contains(miner_share_safe_error(new TypeError('private')),'Formato de datos'), 'TypeError classification missing');
 echo "SHARES_LEARNING_REGRESSION_OK\n";
