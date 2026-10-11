@@ -277,7 +277,7 @@ function miner_shared_salad_api_key(): ?string {
     $shared=miner_get_secret('salad:api-key');
     if ($shared!==null) return $shared;
     // Read-only compatibility for installations that previously stored an
-    // organization-specific key. New keys are saved only in the shared slot.
+    // organization-specific key. Scoped overrides are handled separately.
     return miner_get_secret('salad:hache:api-key') ?? miner_get_secret('salad:interactive:api-key');
 }
 
