@@ -4,6 +4,8 @@ require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/kryptex.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/shares.php';
+require_once dirname(__DIR__).'/app/finances.php';
+require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -152,12 +154,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             // A single timestamp identifies THIS exact, successfully received
             // snapshot. Historical replica rows are never treated as current.
             $snapshotAt=gmdate('Y-m-d H:i:s');
-            $rate=null;
-            if($g['gpu_class']!==null) {
-                $st=miner_db()->prepare('SELECT usd_per_hour FROM gpu_rates WHERE organization=? AND gpu_class=? AND priority=?');
-                $st->execute([$org,$g['gpu_class'],$g['priority']]);
-                $rate=$st->fetchColumn();if($rate===false)$rate=null;
-            }
+            // Only authenticated Salad prices refreshed recently are eligible.
+            // Legacy manual gpu_rates are never used for billing estimates.
+            $rate=$g['gpu_class']!==null
+                ?miner_salad_price_for(miner_db(),$org,$g['gpu_class'],$g['priority'])
+                :null;
             // The log response may identify multiple different instances.
             // Only attribute a hashrate to a matching instance or a provably
             // unique running node; never divide a group hashrate across replicas.
@@ -270,6 +271,18 @@ try {
             if (!$key) {
                 miner_run_record('salad:'.$org.'/'.$project,'missing','Salad API key not configured');
                 continue;
+            }
+            // Price synchronization is optional; failure never stops mining observation.
+            // The same org may have multiple projects, but only one API price GET per window.
+            if(miner_salad_price_sync_due(miner_db(),$org)){
+                try{
+                    $official=miner_rate_fetch_salad_gpu_classes($org,$key);
+                    $updated=miner_salad_price_sync(miner_db(),$org,$official);
+                    miner_run_record('salad-rates:'.$org,'ok','Official class/priority prices: '.$updated);
+                }catch(Throwable $priceError){
+                    error_log('[hache-miner] salad-rates '.get_class($priceError));
+                    miner_run_record('salad-rates:'.$org,'partial','Official price sync unavailable');
+                }
             }
             miner_poll_salad($org,$project,$key);
         } catch(Throwable $e) {
