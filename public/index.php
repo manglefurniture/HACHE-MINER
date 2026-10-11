@@ -10,6 +10,7 @@ require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/accounting.php';
 require_once dirname(__DIR__).'/app/salad-credits.php';
 require_once dirname(__DIR__).'/app/reallocate.php';
+require_once dirname(__DIR__).'/app/safetrade.php';
 miner_security_headers();
 try {
     miner_session();
@@ -63,6 +64,20 @@ try {
                         throw $writeError;
                     }
                     miner_audit($uid,'safetrade_credentials_updated','read-only provider configured; secret values never logged');
+                } elseif ($action==='safetrade_test') {
+                    if ($page!=='settings') throw new DomainException('SafeTrade check requires settings page');
+                    try {
+                        $account=miner_safetrade_read('/trade/account/members/me');
+                        if (!$account || isset($account['error']) || isset($account['errors'])) {
+                            throw new RuntimeException('SafeTrade authentication returned an error');
+                        }
+                        $_SESSION['safetrade_check']='Conexión autenticada: consulta de cuenta en solo lectura satisfactoria. Saldos e historial aún sin validar.';
+                        miner_audit($uid,'safetrade_readonly_check','account GET success');
+                    } catch(Throwable $safeError) {
+                        $_SESSION['safetrade_check']='La consulta de solo lectura falló. Comprueba la API y sus permisos; no se ejecutó ninguna operación.';
+                        miner_audit($uid,'safetrade_readonly_check','account GET failed: '.get_class($safeError));
+                    }
+                    header('Location: /?page=settings',true,303);exit;
                 } elseif ($action==='salad_org_secret') {
                     $org=strtolower(trim((string)($_POST['org_slug']??'')));
                     if (!miner_known_salad_org($org)) throw new InvalidArgumentException('Organización desconocida.');
@@ -655,7 +670,12 @@ foreach($monitorData['groups'] as $group) {
 <label>API Secret<input type="password" name="safetrade_api_secret" required maxlength="4096" autocomplete="new-password" spellcheck="false"></label>
 <button name="action" value="safetrade_credentials">Guardar credenciales cifradas</button>
 </form>
-<p class="muted">Las claves solo se usarán para consultas cuando la integración SafeTrade haya superado la validación de endpoints y permisos.</p>
+<form method="post" action="/?page=settings">
+<input type="hidden" name="csrf" value="<?= $csrf ?>">
+<button name="action" value="safetrade_test">Probar conexión de solo lectura</button>
+</form>
+<?php if (isset($_SESSION['safetrade_check'])): ?><p class="muted"><?= miner_h((string)$_SESSION['safetrade_check']) ?></p><?php unset($_SESSION['safetrade_check']); endif; ?>
+<p class="muted">Esta prueba únicamente consulta el perfil de cuenta. Todavía no importa movimientos ni saldos.</p>
 </section>
 <section class="card"><h2>Organizaciones y proyectos Salad</h2>
 <p class="muted">Agrega otra organización y el proyecto que desees supervisar, sin crear una nueva clave API. Desactivar detiene las lecturas futuras sin borrar el historial.</p>
