@@ -100,4 +100,11 @@ $missingColumn=new PDOException('example SQL text to never expose',0);
 $diagnostic=miner_share_safe_error($missingColumn);
 shcheck(str_contains($diagnostic,'MariaDB') && !str_contains($diagnostic,'example'), 'SQL text disclosed to administrator');
 shcheck(str_contains(miner_share_safe_error(new TypeError('private')),'Formato de datos'), 'TypeError classification missing');
+function miner_share_test_bad_type(): void { throw new TypeError('secret-should-never-be-output'); }
+try { miner_share_test_bad_type(); }
+catch(TypeError $e) {
+    $safe=miner_share_safe_error($e);
+    shcheck(!str_contains($safe,'secret-should-never-be-output') &&
+        str_contains($safe,'Código externo.'), 'Safe share error locator must not leak exception values');
+}
 echo "SHARES_LEARNING_REGRESSION_OK\n";
