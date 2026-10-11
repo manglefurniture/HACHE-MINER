@@ -15,6 +15,8 @@ function miner_salad_price_rows(array $catalog): array
         foreach($prices as $entry) {
             if(!is_array($entry))continue;
             $priority=strtolower((string)($entry['priority']??''));
+            // Salad API names the Lowest tier 'batch'; normalize for the UI.
+            if($priority==='batch')$priority='lowest';
             $raw=$entry['price']??null;
             if(!in_array($priority,['lowest','low','medium','high'],true)
                 || !is_string($raw) && !is_int($raw) && !is_float($raw))continue;
@@ -56,6 +58,7 @@ function miner_salad_current_prices(PDO $db):array
 function miner_salad_price_for(PDO $db,string $org,string $gpu,string $priority):?string
 {
     if($gpu===''||!miner_salad_prices_ready($db))return null;
+    if($priority==='batch')$priority='lowest';
     $stmt=$db->prepare("SELECT usd_per_hour FROM salad_gpu_prices
         WHERE organization=? AND gpu_class=? AND priority=?
           AND observed_at>=UTC_TIMESTAMP()-INTERVAL 90 MINUTE");
