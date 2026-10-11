@@ -364,10 +364,8 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
         $org=(string)($g['organization']??'');$project=(string)($g['project_name']??'');
         if(empty($enabled[$org."\\0".$project])||empty($g['recent'])
             ||strtolower((string)($g['state']??''))!=='running')continue;
-        $class=(string)($g['gpu_class']??'');
         $priority=strtolower((string)($g['priority']??''));
         if($priority==='batch')$priority='lowest';
-        $rate=$prices[$org."\\0".$class."\\0".$priority]??null;
         foreach($g['instances']??[] as $n){
             if(!is_array($n)||empty($n['ready'])||strtolower((string)($n['state']??''))!=='running')continue;
             $id=(string)($n['id']??'');
@@ -376,6 +374,10 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
             $key=$org."\\0".$project."\\0".(string)($g['id']??$g['group_name']??'')."\\0".$id;
             if(isset($seen[$key]))continue;
             $seen[$key]=true;
+            // Price the ACTUAL attributed instance, never a group-wide
+            // configured class when the group allows multiple GPU classes.
+            $class=(string)($n['gpu_class']??$g['gpu_class']??'');
+            $rate=$class!=='' ? ($prices[$org."\\0".$class."\\0".$priority]??null):null;
             if(!isset($orgs[$org]))$orgs[$org]=['usd_per_hour'=>0.0,'priced'=>0,'unpriced'=>0];
             if($rate===null){
                 $unpriced++;$orgs[$org]['unpriced']++;
@@ -435,7 +437,7 @@ function miner_monitor_inventory(): array {
     $db=miner_db();
     $targets=miner_salad_targets(false);
     $groups=$db->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,gpu_class,last_seen_at FROM group_state WHERE last_seen_at >= UTC_TIMESTAMP()-INTERVAL 8 HOUR ORDER BY organization,project_name,group_name')->fetchAll(PDO::FETCH_ASSOC);
-    $query="SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started
+    $query="SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started,m.gpu_class_at_observation
       FROM miner_observations m INNER JOIN (
         SELECT group_id,instance_id,MAX(observed_at) latest_at
         FROM miner_observations
@@ -450,7 +452,8 @@ function miner_monitor_inventory(): array {
             'id'=>(string)$ob['instance_id'],
             'state'=>(string)$ob['state'],
             'ready'=>((int)$ob['ready']===1 && (int)$ob['started']===1 && $ob['state']==='running'),
-            'observed_at'=>(string)$ob['observed_at']
+            'observed_at'=>(string)$ob['observed_at'],
+            'gpu_class'=>($ob['gpu_class_at_observation']??null)
         ];
     }
     $logs=$db->query("SELECT group_id,logged_at,severity FROM log_events
