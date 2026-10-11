@@ -193,19 +193,28 @@ assert_deploy(str_contains($poll,'UPDATE group_state SET last_seen_at=? WHERE id
 assert_deploy(str_contains($poll,"SET state='unverified'"), 'Failed instance lookup cannot retain previous running claim');
 assert_deploy(str_contains($monitor,'miner_monitor_current_snapshot_nodes('), 'Monitor must show only last authoritative instance snapshot');
 assert_deploy(str_contains($dashboard,'último sondeo confirmado'), 'UI must disclose poll freshness, not instant state');
-assert_deploy(str_contains($dashboard,'<select name="rate_gpu_choice" required>'),
-    'GPU rate entry must require official Salad class selection');
-assert_deploy(str_contains($dashboard,'miner_rate_gpu_catalogue($targets,$classRows,$rates,'),
-    'Dropdown must combine live Salad catalog with same-organization historical classes');
-assert_deploy(str_contains($dashboard,'miner_rate_parse_gpu_selection('),
-    'Rate entry must parse selected class and owning organization exactly');
-assert_deploy(str_contains($dashboard,'<option value="lowest">Lowest</option>'),
-    'Lowest priority must be selectable independently of Low');
-assert_deploy(!str_contains($dashboard,'name="gpu_class_custom"'),
-    'Freeform class IDs must not silently override the Salad selector');
-assert_deploy(str_contains($dashboard,"miner_h(\$orgCatalog['organization'].'|'.\$gpu['id'])"),
-    'Organization and exact GPU ID must be escaped into option value');
-assert_deploy(str_contains($dashboard,"miner_h(\$gpu['name']"),
-    'Salad GPU display names must be HTML escaped');
+assert_deploy(!str_contains($dashboard,'<select name="rate_gpu_choice" required>'),
+    'Legacy manual rate editor must not remain active');
+assert_deploy(!str_contains($dashboard,"elseif ($". "action==='rate')"),
+    'Legacy rate action must not allow manual overwrite of Salad rates');
+assert_deploy(str_contains($dashboard,'miner_salad_current_prices(miner_db())'),
+    'GPU rates shown in settings must come from verified Salad cache');
+assert_deploy(str_contains($dashboard,'Tarifas oficiales de Salad'),
+    'Official GPU rate screen must disclose the source');
+assert_deploy(!str_contains($dashboard,'miner_rate_gpu_catalogue('),
+    'Settings must not perform a slow unused Salad GPU catalog fetch');
+assert_deploy(str_contains($poll,'miner_salad_price_for('),
+    'Poller must use only official Salad rate');
+assert_deploy(!str_contains($poll,'SELECT usd_per_hour FROM gpu_rates'),
+    'Poller cannot silently use legacy manual rate');
+assert_deploy(str_contains($poll,'official_rate_usd_per_hour'),
+    'Poller must snapshot verified rate at observation');
+$officialSql=file_get_contents(__DIR__.'/../database/006_salad_gpu_prices.sql');
+$officialScript=file_get_contents(__DIR__.'/../deploy/apply-salad-gpu-prices-migration.sh');
+assert_deploy(str_contains($officialSql,'salad_gpu_price_changes'),
+    'Official rate history requires separate change log');
+assert_deploy(str_contains($officialScript,'ROOT_REQUIRED') &&
+    str_contains($officialScript,'BACKUP_FAILED'),
+    'New database migration needs privileged backup safeguards');
 
 echo "PASS deploy-isolation-regression\n";

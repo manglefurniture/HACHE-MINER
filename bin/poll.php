@@ -4,6 +4,8 @@ require_once dirname(__DIR__).'/app/core.php';
 require_once dirname(__DIR__).'/app/kryptex.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/shares.php';
+require_once dirname(__DIR__).'/app/finances.php';
+require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -61,16 +63,28 @@ function miner_log_save(int $groupId,array $items,array $nodes): void {
         $st->execute([$hash,$groupId,gmdate('Y-m-d H:i:s',$ts),$severity,$line]);
     }
 }
-function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null,?array $shares=null): void {
+function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null,?array $shares=null,?string $gpuClass=null,?string $priority=null): void {
     $instanceId=(string)($instance['instance_id']??$instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
     $state=miner_instance_state($instance);
     $ready=($instance['ready']??null)===true;$started=($instance['started']??null)===true;
     $db=miner_db();
-    $prev=$db->prepare('SELECT observed_at,ready,started FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
+    // Preserve billing provenance. Never apply today's rate to a sample
+    // recorded before official prices or across class/priority/rate changes.
+    $officialSchema=miner_salad_prices_ready($db);
+    $prev=$db->prepare($officialSchema
+        ? 'SELECT observed_at,state,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1'
+        : 'SELECT observed_at,state FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
     $cost=null;
-    if($old && $ready && $started && (int)$old['ready']===1 && (int)$old['started']===1 && $rate!==null) {
+    // Billing estimate counts contiguous Salad running time, including miner startup.
+    // Do NOT require accepted shares, hashrate, or ready/started for cost.
+    if($officialSchema && $old && $state==='running'
+        && (string)$old['state']==='running'
+        && $rate!==null && $gpuClass!==null && $priority!==null
+        && (string)($old['gpu_class_at_observation']??'')===$gpuClass
+        && (string)($old['priority_at_observation']??'')===$priority
+        && (string)($old['official_rate_usd_per_hour']??'')===$rate) {
         $elapsed=strtotime($now)-strtotime($old['observed_at']);
         if($elapsed>0 && $elapsed<=420) $cost=number_format(((float)$rate)*$elapsed/3600,8,'.','');
     }
@@ -82,12 +96,24 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $prevTs=$old?strtotime((string)($old['observed_at']??'')):false;
     $shareFresh=$shareTs!==false && ($prevTs===false || $shareTs>$prevTs);
     $safeShares=$ready && $started && $state==='running' && $shareFresh ? $shares:null;
-    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-    $st->execute([
+    $params=[
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
         $safeShares['accepted']??null,$cost
-    ]);
+    ];
+    if($officialSchema){
+        // Rate source is explicit: NULL means missing official API price.
+        $st=$db->prepare('INSERT IGNORE INTO miner_observations
+           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $st->execute([...$params,$gpuClass,$priority,$rate]);
+    }else{
+        // Migration pending: preserve observations without pretending legacy rates are official.
+        $st=$db->prepare('INSERT IGNORE INTO miner_observations
+           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+        $st->execute($params);
+    }
 }
 /**
  * Salad's full successful group list is authoritative. Remove an old "running"
@@ -152,12 +178,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             // A single timestamp identifies THIS exact, successfully received
             // snapshot. Historical replica rows are never treated as current.
             $snapshotAt=gmdate('Y-m-d H:i:s');
-            $rate=null;
-            if($g['gpu_class']!==null) {
-                $st=miner_db()->prepare('SELECT usd_per_hour FROM gpu_rates WHERE organization=? AND gpu_class=? AND priority=?');
-                $st->execute([$org,$g['gpu_class'],$g['priority']]);
-                $rate=$st->fetchColumn();if($rate===false)$rate=null;
-            }
+            // Only authenticated Salad prices refreshed recently are eligible.
+            // Legacy manual gpu_rates are never used for billing estimates.
+            $rate=$g['gpu_class']!==null
+                ?miner_salad_price_for(miner_db(),$org,$g['gpu_class'],$g['priority'])
+                :null;
             // The log response may identify multiple different instances.
             // Only attribute a hashrate to a matching instance or a provably
             // unique running node; never divide a group hashrate across replicas.
@@ -172,7 +197,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
-                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null);
+                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null,$g['gpu_class'],$g['priority']);
             }
             // Update the group snapshot marker also when Salad returns zero
             // instances; this immediately makes older replica cards obsolete.
@@ -270,6 +295,18 @@ try {
             if (!$key) {
                 miner_run_record('salad:'.$org.'/'.$project,'missing','Salad API key not configured');
                 continue;
+            }
+            // Price synchronization is optional; failure never stops mining observation.
+            // The same org may have multiple projects, but only one API price GET per window.
+            if(miner_salad_price_sync_due(miner_db(),$org)){
+                try{
+                    $official=miner_rate_fetch_salad_gpu_classes($org,$key);
+                    $updated=miner_salad_price_sync(miner_db(),$org,$official);
+                    miner_run_record('salad-rates:'.$org,'ok','Official class/priority prices: '.$updated);
+                }catch(Throwable $priceError){
+                    error_log('[hache-miner] salad-rates '.get_class($priceError));
+                    miner_run_record('salad-rates:'.$org,'partial','Official price sync unavailable');
+                }
             }
             miner_poll_salad($org,$project,$key);
         } catch(Throwable $e) {
