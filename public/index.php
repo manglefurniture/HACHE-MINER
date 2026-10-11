@@ -675,7 +675,7 @@ foreach($monitorData['groups'] as $group) {
 <?php elseif($page==='history'): ?>
 <section class="card">
 <h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
-<?php if(!empty($shareLearning['unavailable'])): ?><p class="muted"><strong>Datos de shares temporalmente no disponibles.</strong> El histórico de TH/s, el monitor y la minería continúan independientes. Se está revisando la consulta o el esquema de registros.</p><?php endif; ?>
+<?php if(!empty($shareLearning['unavailable'])): ?><p class="muted"><strong>Datos de shares temporalmente no disponibles.</strong> <?= miner_h((string)($shareLearning['error_reason']??'La consulta no pudo completarse.')) ?> El histórico de TH/s y la minería continúan independientes.</p><?php endif; ?>
 <p class="muted">Shares aceptados extraídos de resúmenes acumulativos de SRBMiner y vinculados a una instancia comprobada. Las lecturas repetidas no se suman. Cuando el contador se reinicia, no se interpreta la diferencia como shares perdidos. Las ventanas con más de 11 minutos entre muestras se excluyen.</p>
 <p class="muted"><strong>Alertas informativas:</strong> una caída sostenida de TH/s frente a tres o más GPU comparables, o 45 minutos observados sin nuevos shares. Ninguna señal reasigna, apaga o cambia prioridades. El número bruto de shares depende de la dificultad asignada por el pool: no se compara para sancionar ni sirve para calcular PRL reales.</p>
 <div class="tablewrap mobile-stack"><table>
