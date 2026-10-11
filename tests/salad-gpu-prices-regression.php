@@ -8,7 +8,7 @@ function price_assert(bool $ok,string $why):void {
 $api=['items'=>[
  ['id'=>'3eae6ce4-aa14-4c7d-b502-131730c9af48','name'=>'RTX 4070 Ti SUPER',
   'prices'=>[
-    ['priority'=>'lowest','price'=>'0.090'],
+    ['priority'=>'batch','price'=>'0.090'],
     ['priority'=>'low','price'=>'0.130'],
     ['priority'=>'medium','price'=>'0.170'],
     ['priority'=>'high','price'=>'0.210']]],
@@ -23,6 +23,8 @@ $by=[];
 foreach($rates as $r)$by[$r['gpu_class'].'|'.$r['priority']]=$r['usd_per_hour'];
 price_assert($by['3eae6ce4-aa14-4c7d-b502-131730c9af48|lowest']==='0.090000',
     'Lowest rate not exact');
+price_assert(!isset($by['3eae6ce4-aa14-4c7d-b502-131730c9af48|batch']),
+    'API batch must be normalized to Lowest only');
 price_assert($by['3eae6ce4-aa14-4c7d-b502-131730c9af48|low']==='0.130000',
     'Low must not inherit Lowest rate');
 price_assert($by['f0a512bc-782b-40cc-8718-d988b50d83ce|low']==='0.097000',
