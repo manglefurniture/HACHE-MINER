@@ -260,15 +260,18 @@ function miner_poll_kryptex(): void {
 try {
     miner_db();
     $targets=miner_salad_targets();
-    $key=miner_shared_salad_api_key();
-    if (!$key) {
-        miner_run_record('salad:shared','missing','Shared API key not configured');
-    } else {
-        foreach($targets as $target) {
-            $org=(string)$target['organization_slug'];
-            $project=(string)$target['project_slug'];
-            try {miner_poll_salad($org,$project,$key);}
-            catch(Throwable $e){miner_run_record('salad:'.$org.'/'.$project,'error',get_class($e).' during target polling');}
+    foreach($targets as $target) {
+        $org=(string)$target['organization_slug'];
+        $project=(string)$target['project_slug'];
+        try {
+            $key=miner_salad_api_key_for_org($org);
+            if (!$key) {
+                miner_run_record('salad:'.$org.'/'.$project,'missing','Salad API key not configured');
+                continue;
+            }
+            miner_poll_salad($org,$project,$key);
+        } catch(Throwable $e) {
+            miner_run_record('salad:'.$org.'/'.$project,'error',miner_salad_poll_error($e,'groups'));
         }
     }
     miner_poll_kryptex();
