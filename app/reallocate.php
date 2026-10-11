@@ -139,7 +139,7 @@ function miner_reallocation_execute(int $adminId,int $groupId,string $instanceId
         if ((int)$st->fetchColumn()>0) throw new DomainException('Recent request, cooldown active');
         // Re-check the stored instance after entering the per-instance lock.
         $target=miner_reallocation_target($groupId,$instanceId);
-        $key=miner_shared_salad_api_key();
+        $key=miner_salad_api_key_for_org((string)$target['organization']);
         if ($key===null || $key==='') throw new RuntimeException('Salad API unavailable');
         $base='https://api.salad.com/api/public/organizations/'.rawurlencode((string)$target['organization'])
             .'/projects/'.rawurlencode((string)$target['project_name'])
