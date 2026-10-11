@@ -120,4 +120,25 @@ check(str_contains($view,'name="rate_gpu_choice"') &&
 check(!str_contains($view,'name="gpu_class_custom"'),
       'Manual text field must not override selected Salad GPU');
 
+
+// Guanabacoa must be readable with a scoped credential without affecting Hache.
+check(miner_salad_poll_error(new RuntimeException('Consulta externa no disponible (HTTP 403).'),'groups')==='groups HTTP 403',
+    'A forbidden organization must be identifiable without showing a credential');
+check(miner_salad_poll_error(new RuntimeException('Logs HTTP 429'),'logs')==='logs HTTP 429',
+    'Salad throttling must be identified on group logs');
+check(miner_salad_poll_error(new RuntimeException('token=private-shared-key'),'instances')==='instances invalid response or unavailable',
+    'Collector diagnostics must never echo exception secrets');
+check(miner_salad_poll_error(new RuntimeException('Paginación pendiente'),'groups')==='groups pagination incomplete',
+    'Pagination errors must not be misreported as missing groups');
+$pollSource=file_get_contents(dirname(__DIR__).'/bin/poll.php');
+$reallocationSource=file_get_contents(dirname(__DIR__).'/app/reallocate.php');
+check(str_contains($pollSource,'miner_salad_api_key_for_org($org)'),
+    'Every enabled Salad target must choose its own credential');
+check(str_contains($reallocationSource,"miner_salad_api_key_for_org((string)\$target['organization'])"),
+    'Reallocation live verification must follow the same organization credential');
+check(str_contains($view,'name="action" value="salad_org_secret"') &&
+      str_contains($view,"miner_known_salad_org(\$org)") &&
+      str_contains($view,"miner_put_secret('salad:org:'.\$org.':api-key'"),
+    'Scoped key form must be authenticated and bound to an existing organization');
+
 echo "PASS core-security-regression\n";
