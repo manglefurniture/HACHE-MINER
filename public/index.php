@@ -653,7 +653,7 @@ foreach($monitorData['groups'] as $group){
 <?php field('USD por GPU y hora','usd_per_hour','number','0.130000'); ?>
 <p class="muted">El catálogo identifica clases, no disponibilidad garantizada ni tarifas contratadas. Introduce el precio real que corresponda a la prioridad elegida. Si Salad falla, aparecen las clases históricas identificadas como «registro anterior».</p>
 <button name="action" value="rate">Guardar tarifa</button></form>
-<?php foreach($rates as $r): ?><p class="muted"><?= miner_h($r['organization'].' · '.$r['gpu_class'].' · '.$r['priority'].' · 
+<?php foreach($rates as $r): ?><p class="muted"><?= miner_h($r['organization'].' · '.$r['gpu_class'].' · '.$r['priority'].' · $'.$r['usd_per_hour'].'/h') ?></p><?php endforeach; ?></section>
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
