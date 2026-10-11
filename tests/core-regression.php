@@ -56,4 +56,68 @@ check(miner_gpu_rate_class_choices([['gpu_class'=>str_repeat('A',121)]],[])===[]
 $numericIds=miner_gpu_rate_class_choices([['gpu_class'=>'123'],['gpu_class'=>'000123'],['gpu_class'=>'123']],[]);
 check(count($numericIds)===2 && in_array('000123',$numericIds,true) && in_array('123',$numericIds,true), 'Numeric GPU IDs must stay strings with original leading zeros');
 foreach($numericIds as $gpuId)check(is_string($gpuId), 'GPU dropdown ID must be a string');
+
+$saladGpu=miner_rate_parse_salad_gpu_classes(['items'=>[
+ ['id'=>'5bac1f6e-e000-40af-a7f9-4469d6ca8888','name'=>'NVIDIA GeForce RTX 4070 Ti SUPER'],
+ ['id'=>'abc-5090','name'=>'NVIDIA RTX 5090 Laptop'],
+ ['id'=>'abc-5090','name'=>'NVIDIA RTX 5090 Laptop'],
+ ['id'=>'invalid/id','name'=>'Invalid'],
+ ['id'=>'','name'=>'Empty']
+]]);
+check(count($saladGpu)===2 && $saladGpu[0]['id']==='5bac1f6e-e000-40af-a7f9-4469d6ca8888',
+    'Official Salad GPU catalog must preserve exact IDs, dedupe and sort human names');
+try {miner_rate_parse_salad_gpu_classes(['invalid'=>[]]);throw new RuntimeException('Missing catalog accepted');}
+catch(UnexpectedValueException $e) {}
+
+$called=[];
+$read=static function(string $org)use(&$called):array{
+    $called[]=$org;
+    if($org==='guanabacoa')throw new RuntimeException('Simulated Salad API outage');
+    if($org==='interactive')return [
+       ['id'=>'uuid-small','name'=>'RTX 4070 Laptop','source'=>'salad'],
+    ];
+    return [
+       ['id'=>'5bac1f6e-e000-40af-a7f9-4469d6ca8888','name'=>'RTX 4070 Ti SUPER','source'=>'salad']
+    ];
+};
+$catalog=miner_rate_gpu_catalogue(
+ [['organization_slug'=>'hache'],['organization_slug'=>'interactive'],['organization_slug'=>'guanabacoa'],
+  ['organization_slug'=>'hache']],
+ [['organization'=>'hache','gpu_class'=>'5bac1f6e-e000-40af-a7f9-4469d6ca8888'],
+  ['organization'=>'guanabacoa','gpu_class'=>'class-guana'],
+  ['organization'=>'hache','gpu_class'=>'class-only-old'],
+  ['organization'=>'interactive','gpu_class'=>'uuid-small']],
+ [['organization'=>'interactive','gpu_class'=>'saved-interactive']],
+ $read
+);
+check(count($called)===3 && count(array_unique($called))===3,'Only one API query per configured organization');
+check(count($catalog)===3,'All organizations need separate GPU option groups');
+$catalogByOrg=[];
+foreach($catalog as $entry)$catalogByOrg[$entry['organization']]=$entry;
+check($catalogByOrg['guanabacoa']['live']===false &&
+      count($catalogByOrg['guanabacoa']['items'])===1 &&
+      $catalogByOrg['guanabacoa']['items'][0]['id']==='class-guana',
+      'A failed Salad API must retain only the appropriate org historical classes');
+check($catalogByOrg['hache']['live']===true && count($catalogByOrg['hache']['items'])===2,
+      'Live official classes must be unioned with saved Hache classes');
+check($catalogByOrg['interactive']['live']===true && count($catalogByOrg['interactive']['items'])===2,
+      'Saved Interactive rates must remain selectable separately');
+check(miner_rate_parse_gpu_selection('guanabacoa|class-guana')['organization']==='guanabacoa',
+      'Pricing form must preserve target organization');
+check(miner_rate_parse_gpu_selection('interactive|uuid-small')['gpu_class']==='uuid-small',
+      'Pricing form must preserve exact Salad class');
+foreach(['../hache|gpu','hache|../gpu','hache|','|class','hache|class|another','hache','hache| invalid'] as $bad)
+    check(miner_rate_parse_gpu_selection($bad)===null,'Forged or malformed tariff selection accepted');
+check(miner_rate_valid_priority('lowest') && miner_rate_valid_priority('low') &&
+      miner_rate_valid_priority('medium') && miner_rate_valid_priority('high'),
+      'All four Salad priority tiers required');
+check(!miner_rate_valid_priority('batch') && !miner_rate_valid_priority(''), 'Unknown priority accepted');
+$view=file_get_contents(dirname(__DIR__).'/public/index.php');
+check(str_contains($view,'name="rate_gpu_choice"') &&
+      str_contains($view,'<option value="lowest">Lowest</option>') &&
+      str_contains($view,'miner_rate_valid_priority($priority)'),
+      'Production rate form must offer official GPU selector and Lowest');
+check(!str_contains($view,'name="gpu_class_custom"'),
+      'Manual text field must not override selected Salad GPU');
+
 echo "PASS core-security-regression\n";

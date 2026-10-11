@@ -87,12 +87,13 @@ try {
                     $st=miner_db()->prepare('INSERT IGNORE INTO wallets (organization,coin,label,address) VALUES (?,?,?,?)');$st->execute([$org,'PRL',$label,$address]);
                     miner_audit($uid,'wallet_added',$org);
                 } elseif ($action==='rate') {
-                    $org=(string)($_POST['organization']??'');
-                    $chosenClass=trim((string)($_POST['gpu_class']??''));
-                    $newClass=trim((string)($_POST['gpu_class_custom']??''));
-                    $gpu=$newClass!==''?$newClass:$chosenClass;
+                    $selection=miner_rate_parse_gpu_selection((string)($_POST['rate_gpu_choice']??''));
+                    $org=$selection['organization']??'';
+                    $gpu=$selection['gpu_class']??'';
                     $priority=(string)($_POST['priority']??'');$rate=miner_finite_decimal($_POST['usd_per_hour']??null);
-                    if (!miner_known_salad_org($org) || !in_array($priority,['low','medium','high'],true) || strlen($gpu)>120 || $gpu==='' || $rate===null || (float)$rate>100) throw new InvalidArgumentException('Tarifa inválida.');
+                    if ($selection===null || !miner_known_salad_org($org)
+                        || !miner_rate_valid_priority($priority) || $rate===null || (float)$rate>100)
+                        throw new InvalidArgumentException('Selecciona una GPU de Salad, prioridad y tarifa válidas.');
                     $st=miner_db()->prepare('INSERT INTO gpu_rates (organization,gpu_class,priority,usd_per_hour) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE usd_per_hour=VALUES(usd_per_hour),effective_at=CURRENT_TIMESTAMP');
                     $st->execute([$org,$gpu,$priority,$rate]);
                     miner_audit($uid,'gpu_rate_updated',$org);
@@ -140,7 +141,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$shareLearning=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$rateGpuCatalogue=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$shareLearning=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -200,9 +201,16 @@ try {
         if ($page==='settings') {
             // Historical Salad class IDs, not GPU models inferred from mining logs.
             // This query has no age cutoff and includes stopped / retired groups.
-            $classRows=miner_db()->query("SELECT DISTINCT gpu_class FROM group_state
+            $classRows=miner_db()->query("SELECT DISTINCT organization,gpu_class FROM group_state
                 WHERE gpu_class IS NOT NULL AND gpu_class<>''")->fetchAll(PDO::FETCH_ASSOC);
             $gpuClassOptions=miner_gpu_rate_class_choices($classRows,$rates);
+            // The catalog is optional UI data; Salad outages cannot blank settings.
+            $rateKey=null;
+            try {$rateKey=miner_shared_salad_api_key();}
+            catch(Throwable $e) {error_log('[hache-miner] rate-gpu-key-unavailable '.get_class($e));}
+            $rateGpuCatalogue=miner_rate_gpu_catalogue($targets,$classRows,$rates,
+                $rateKey!==null ? static fn(string $org):array=>
+                    miner_rate_fetch_salad_gpu_classes($org,$rateKey) : null);
             $s=miner_db()->prepare('SELECT device_label,created_at,last_used_at,expires_at FROM trusted_devices WHERE admin_id=? AND revoked_at IS NULL AND expires_at>UTC_TIMESTAMP() ORDER BY id DESC LIMIT 10');
             $s->execute([$uid]);$trustedDevices=$s->fetchAll();
         }
@@ -621,20 +629,30 @@ foreach($monitorData['groups'] as $group){
 <section class="card"><h2>Billetera pública PRL</h2><p class="muted">Solo direcciones para seguimiento. No almacenar semillas ni claves privadas.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Etiqueta','label');field('Dirección PRL','address');?><button name="action" value="wallet">Agregar dirección</button></form>
 <?php foreach($wallets as $w): ?><p><?= miner_h($w['organization'].' · '.$w['label']) ?><small> <?= miner_h(substr($w['address'],0,12)) ?>…</small></p><?php endforeach; ?></section>
-<section class="card"><h2>Tarifas de GPU</h2><p class="muted">No se asignan precios por defecto. Introducir solo tarifas confirmadas.</p>
-<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect(); ?>
-<label>Clase de GPU (ID de Salad)
-<select name="gpu_class">
-<option value="">Seleccionar GPU utilizada anteriormente</option>
-<?php foreach($gpuClassOptions as $gpuClass): ?>
-<option value="<?= miner_h($gpuClass) ?>"><?= miner_h($gpuClass) ?></option>
+<section class="card"><h2>Tarifas de GPU</h2>
+<p class="muted">Selecciona una GPU del catálogo oficial de Salad y su prioridad. El precio se registra por organización, clase exacta y prioridad, sin precios predeterminados.</p>
+<form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>">
+<label>GPU de Salad (organización incluida)
+<select name="rate_gpu_choice" required>
+<option value="">Selecciona la GPU y su organización</option>
+<?php foreach($rateGpuCatalogue as $orgCatalog): ?>
+<optgroup label="<?= miner_h(strtoupper($orgCatalog['organization']).' · '.($orgCatalog['live']?'Catálogo Salad':'Clases registradas; API sin respuesta')) ?>">
+<?php foreach($orgCatalog['items'] as $gpu): ?>
+<option value="<?= miner_h($orgCatalog['organization'].'|'.$gpu['id']) ?>"><?= miner_h($gpu['name'].($gpu['source']==='salad'?'':' · registro anterior')) ?></option>
+<?php endforeach; ?>
+</optgroup>
 <?php endforeach; ?>
 </select></label>
-<label>Otra GPU (opcional, si todavía no aparece en la lista)
-<input type="text" name="gpu_class_custom" maxlength="120" autocomplete="off" placeholder="ID exacto de Salad"></label>
-<p class="muted">Clases registradas en los grupos de Salad y en tarifas guardadas, incluso grupos antiguos. La opción manual prevalece sobre la selección cuando se completa. Utiliza el ID exacto; el nombre visible del minero no sirve como identificador para calcular costos.</p>
-<select name="priority"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
-<?php field('USD por hora','usd_per_hour','number','0.130000'); ?><button name="action" value="rate">Guardar tarifa</button></form>
+<?php if(!$rateGpuCatalogue || !array_filter($rateGpuCatalogue,static fn($cat)=>count($cat['items'])>0)): ?>
+<p class="muted">No hay clases disponibles. Configura una clave API de Salad válida o espera la próxima lectura de grupos.</p>
+<?php endif; ?>
+<label>Prioridad de Salad
+<select name="priority" required>
+<option value="lowest">Lowest</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+</select></label>
+<?php field('USD por GPU y hora','usd_per_hour','number','0.130000'); ?>
+<p class="muted">El catálogo identifica clases, no disponibilidad garantizada ni tarifas contratadas. Introduce el precio real que corresponda a la prioridad elegida. Si Salad falla, aparecen las clases históricas identificadas como «registro anterior».</p>
+<button name="action" value="rate">Guardar tarifa</button></form>
 <?php foreach($rates as $r): ?><p class="muted"><?= miner_h($r['organization'].' · '.$r['gpu_class'].' · '.$r['priority'].' · $'.$r['usd_per_hour'].'/h') ?></p><?php endforeach; ?></section>
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
