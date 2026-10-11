@@ -10,7 +10,28 @@ require_once __DIR__.'/monitor.php';
 function miner_share_counters(string $line): ?array
 {
     $line=miner_scrub_log($line);
-    if (strlen($line)>1200 || !preg_match('/\\bshares\\b/i',$line)) return null;
+    if(strlen($line)>1200) return null;
+    // SRBMiner-MULTI 3.7.x prints cumulative A/R/HW counters at the END
+    // of each indexed GPU statistics row; neither 'shares' nor 'accepted'
+    // appears on that line. Match ALL device columns so clock values cannot
+    // be misinterpreted as counters. A dash means unavailable sensor data.
+    $row='/^(?:\[[^\]\r\n]{1,90}\]\s*)?#\d{1,2}\s+'
+        .'(?<gpu>[^\r\n]{3,120}?)\s+'
+        .'\d+(?:\.\d+)?\s+TH\/s\s+'
+        .'(?:\d+(?:\.\d+)?W|-)\s+'
+        .'(?:\d+(?:\.\d+)?|-)\s+'
+        .'(?:\d{1,3}%|-)\s+'
+        .'(?:\d{1,3}C|-)\s+'
+        .'(?:\d+|-)\s+(?:\d+|-)\s+'
+        .'(?<accepted>\d{1,10})\s+(?<rejected>\d{1,10})\s+(?<hw>\d{1,10})\s*$/i';
+    if(preg_match($row,$line,$stats)) {
+        $gpu=trim($stats['gpu']);
+        if(!preg_match('/\b(?:RTX|GTX|Radeon|RX)\s*\d/i',$gpu)) return null;
+        $a=(int)$stats['accepted'];$r=(int)$stats['rejected'];$hw=(int)$stats['hw'];
+        if(max($a,$r,$hw)>1000000000)return null;
+        return ['accepted'=>$a,'rejected'=>$r,'hardware_errors'=>$hw];
+    }
+    if(!preg_match('/\bshares\b/i',$line))return null;
     if (preg_match('/\\b(?:pool|network|total pool|wallet)\\b/i',$line)) return null;
     $accepted=null;
     if (preg_match('/\\b(?:shares\\s+accepted|accepted\\s+shares)\\s*[:=]?\\s*(\\d{1,10})\\b/i',$line,$m)) {
