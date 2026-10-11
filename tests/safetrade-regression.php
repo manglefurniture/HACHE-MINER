@@ -21,4 +21,7 @@ foreach (["\$action==='safetrade_credentials'", "if (\$page!=='settings')", "min
     st_assert(str_contains($settings,$expected),'SafeTrade credential form security contract missing');
 }
 st_assert(!str_contains($settings,"value=\"<?= miner_get_secret('safetrade"),'Secret value must never appear in HTML');
+foreach (["\$action==='safetrade_test'", "miner_safetrade_read('/trade/account/members/me')", 'value="safetrade_test"', "miner_h((string)\$_SESSION['safetrade_check'])"] as $contract) {
+    st_assert(str_contains($settings,$contract),'SafeTrade test endpoint contract missing');
+}
 echo "SAFETRADE_READONLY_CONTRACT_OK\n";
