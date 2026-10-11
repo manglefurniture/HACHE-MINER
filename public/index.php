@@ -675,6 +675,18 @@ foreach($monitorData['groups'] as $group) {
 <?php elseif($page==='history'): ?>
 <section class="card">
 <h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
+<p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
+<?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
+<?php else: ?>
+<?= (int)$lc['lines'] ?> líneas;
+<?= (int)$lc['share_lines'] ?> mencionan shares;
+<?= (int)$lc['accepted_lines'] ?> mencionan accepted;
+<?= (int)$lc['rejected_lines'] ?> mencionan rejected;
+<?= (int)$lc['expected_format'] ?> formato shares accepted;
+<?= (int)$lc['colon_format'] ?> formato shares:.
+<?php endif; ?> Solo recuentos, sin texto ni identidades de los logs.</p>
+<?php endif; ?>
 <?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['capture_coverage']??null)): $coverage=$shareLearning['capture_coverage']; ?>
 <p class="muted"><strong>Diagnóstico de captura (últimas 30 h):</strong>
 <?= (int)$coverage['observations'] ?> registros PRL,
