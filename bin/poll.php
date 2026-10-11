@@ -63,16 +63,19 @@ function miner_log_save(int $groupId,array $items,array $nodes): void {
         $st->execute([$hash,$groupId,gmdate('Y-m-d H:i:s',$ts),$severity,$line]);
     }
 }
-function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null,?array $shares=null): void {
+function miner_instance_save(int $groupId,array $instance,string $now,?string $rate,?array $metric=null,?array $shares=null,?string $gpuClass=null,?string $priority=null): void {
     $instanceId=(string)($instance['instance_id']??$instance['id']??'');
     if(!preg_match('/^[a-zA-Z0-9_-]{1,120}$/D',$instanceId))return;
     $state=miner_instance_state($instance);
     $ready=($instance['ready']??null)===true;$started=($instance['started']??null)===true;
     $db=miner_db();
-    $prev=$db->prepare('SELECT observed_at,ready,started FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
+    $prev=$db->prepare('SELECT observed_at,state,ready,started FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
     $cost=null;
-    if($old && $ready && $started && (int)$old['ready']===1 && (int)$old['started']===1 && $rate!==null) {
+    // Billing estimate counts contiguous Salad running time, including miner startup.
+    // Do NOT require accepted shares, hashrate, or ready/started for cost.
+    if($old && $state==='running' && (string)$old['state']==='running'
+        && $rate!==null && miner_salad_prices_ready($db)) {
         $elapsed=strtotime($now)-strtotime($old['observed_at']);
         if($elapsed>0 && $elapsed<=420) $cost=number_format(((float)$rate)*$elapsed/3600,8,'.','');
     }
@@ -84,12 +87,24 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $prevTs=$old?strtotime((string)($old['observed_at']??'')):false;
     $shareFresh=$shareTs!==false && ($prevTs===false || $shareTs>$prevTs);
     $safeShares=$ready && $started && $state==='running' && $shareFresh ? $shares:null;
-    $st=$db->prepare('INSERT IGNORE INTO miner_observations (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-    $st->execute([
+    $params=[
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
         $safeShares['accepted']??null,$cost
-    ]);
+    ];
+    if(miner_salad_prices_ready($db)){
+        // Rate source is explicit: NULL means missing official API price.
+        $st=$db->prepare('INSERT IGNORE INTO miner_observations
+           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $st->execute([...$params,$gpuClass,$priority,$rate]);
+    }else{
+        // Migration pending: preserve observations without pretending legacy rates are official.
+        $st=$db->prepare('INSERT IGNORE INTO miner_observations
+           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+        $st->execute($params);
+    }
 }
 /**
  * Salad's full successful group list is authoritative. Remove an old "running"
@@ -173,7 +188,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
-                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null);
+                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null,$g['gpu_class'],$g['priority']);
             }
             // Update the group snapshot marker also when Salad returns zero
             // instances; this immediately makes older replica cards obsolete.
