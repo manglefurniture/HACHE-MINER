@@ -69,13 +69,22 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $state=miner_instance_state($instance);
     $ready=($instance['ready']??null)===true;$started=($instance['started']??null)===true;
     $db=miner_db();
-    $prev=$db->prepare('SELECT observed_at,state,ready,started FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
+    // Preserve billing provenance. Never apply today's rate to a sample
+    // recorded before official prices or across class/priority/rate changes.
+    $officialSchema=miner_salad_prices_ready($db);
+    $prev=$db->prepare($officialSchema
+        ? 'SELECT observed_at,state,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1'
+        : 'SELECT observed_at,state FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
     $cost=null;
     // Billing estimate counts contiguous Salad running time, including miner startup.
     // Do NOT require accepted shares, hashrate, or ready/started for cost.
-    if($old && $state==='running' && (string)$old['state']==='running'
-        && $rate!==null && miner_salad_prices_ready($db)) {
+    if($officialSchema && $old && $state==='running'
+        && (string)$old['state']==='running'
+        && $rate!==null && $gpuClass!==null && $priority!==null
+        && (string)($old['gpu_class_at_observation']??'')===$gpuClass
+        && (string)($old['priority_at_observation']??'')===$priority
+        && (string)($old['official_rate_usd_per_hour']??'')===$rate) {
         $elapsed=strtotime($now)-strtotime($old['observed_at']);
         if($elapsed>0 && $elapsed<=420) $cost=number_format(((float)$rate)*$elapsed/3600,8,'.','');
     }
@@ -92,7 +101,7 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
         $safeShares['accepted']??null,$cost
     ];
-    if(miner_salad_prices_ready($db)){
+    if($officialSchema){
         // Rate source is explicit: NULL means missing official API price.
         $st=$db->prepare('INSERT IGNORE INTO miner_observations
            (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour)
