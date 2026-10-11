@@ -44,6 +44,25 @@ try {
                     if ($name!=='salad:api-key') throw new InvalidArgumentException('Secreto no permitido.');
                     miner_put_secret($name,(string)($_POST['secret_value']??''));
                     miner_audit($uid,'secret_updated',$name);
+                } elseif ($action==='safetrade_credentials') {
+                    if ($page!=='settings') throw new DomainException('SafeTrade configuration requires settings page');
+                    $apiKey=(string)($_POST['safetrade_api_key']??'');
+                    $apiSecret=(string)($_POST['safetrade_api_secret']??'');
+                    if ($apiKey==='' || $apiSecret==='' || strlen($apiKey)>4096 || strlen($apiSecret)>4096
+                        || preg_match('/[\\x00-\\x1F\\x7F]/',$apiKey.$apiSecret)) {
+                        throw new InvalidArgumentException('Credenciales SafeTrade inválidas.');
+                    }
+                    $db=miner_db();
+                    $db->beginTransaction();
+                    try {
+                        miner_put_secret('safetrade:api-key',$apiKey);
+                        miner_put_secret('safetrade:api-secret',$apiSecret);
+                        $db->commit();
+                    } catch(Throwable $writeError) {
+                        if ($db->inTransaction()) $db->rollBack();
+                        throw $writeError;
+                    }
+                    miner_audit($uid,'safetrade_credentials_updated','read-only provider configured; secret values never logged');
                 } elseif ($action==='salad_org_secret') {
                     $org=strtolower(trim((string)($_POST['org_slug']??'')));
                     if (!miner_known_salad_org($org)) throw new InvalidArgumentException('Organización desconocida.');
@@ -627,6 +646,17 @@ foreach($monitorData['groups'] as $group) {
 </form>
 <p class="muted"><?= in_array('salad:org:'.$orgKey.':api-key',array_column($secrets,'secret_name'),true)?'Clave propia configurada · se usa antes que la compartida':'Usa la clave compartida' ?></p>
 <?php endforeach; ?></section>
+<section class="card"><h2>SafeTrade · API de solo lectura</h2>
+<p class="muted">Introduce la API Key y API Secret creadas con Trading y Withdraw desactivados. Se guardan cifradas en el servidor; no vuelven a mostrarse. No se realizan operaciones ni retiros.</p>
+<p class="muted">Estado: <?= in_array('safetrade:api-key',array_column($secrets,'secret_name'),true) && in_array('safetrade:api-secret',array_column($secrets,'secret_name'),true) ? 'Credenciales guardadas (sin validar conexión)' : 'Credenciales no configuradas' ?></p>
+<form method="post" action="/?page=settings" autocomplete="off">
+<input type="hidden" name="csrf" value="<?= $csrf ?>">
+<label>API Key<input type="password" name="safetrade_api_key" required maxlength="4096" autocomplete="new-password" spellcheck="false"></label>
+<label>API Secret<input type="password" name="safetrade_api_secret" required maxlength="4096" autocomplete="new-password" spellcheck="false"></label>
+<button name="action" value="safetrade_credentials">Guardar credenciales cifradas</button>
+</form>
+<p class="muted">Las claves solo se usarán para consultas cuando la integración SafeTrade haya superado la validación de endpoints y permisos.</p>
+</section>
 <section class="card"><h2>Organizaciones y proyectos Salad</h2>
 <p class="muted">Agrega otra organización y el proyecto que desees supervisar, sin crear una nueva clave API. Desactivar detiene las lecturas futuras sin borrar el historial.</p>
 <?php foreach ($targets as $t): ?>
