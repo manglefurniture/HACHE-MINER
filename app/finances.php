@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
+require_once __DIR__.'/salad-gpu-prices.php';
 
 /**
  * Selectable historical Salad GPU class IDs for manual hourly-rate entry.
@@ -56,12 +57,17 @@ function miner_finance_overview(): array {
         $orgs[$a['organization']]['charges_usd']=(string)$a['total'];
         $orgs[$a['organization']]['last_charge_at']=$a['latest'];
     }
-    // Only price-at-observation records are summed. No hourly extrapolation
-    // from replicas requested, no dynamic price guesses and no invoice claims.
+    // Manual prices from older releases are unverified. They cannot be
+    // re-labelled as official historical costs.
+    if(!miner_salad_prices_ready($db))return array_values($orgs);
     $sql="SELECT g.organization,
-        SUM(CASE WHEN m.estimated_cost_usd IS NOT NULL THEN m.estimated_cost_usd ELSE 0 END) amount,
-        SUM(CASE WHEN m.estimated_cost_usd IS NOT NULL THEN 1 ELSE 0 END) priced,
-        SUM(CASE WHEN m.estimated_cost_usd IS NULL AND m.ready=1 AND m.started=1 THEN 1 ELSE 0 END) unpriced
+        SUM(CASE WHEN m.official_rate_usd_per_hour IS NOT NULL
+                  AND m.estimated_cost_usd IS NOT NULL
+                 THEN m.estimated_cost_usd ELSE 0 END) amount,
+        SUM(CASE WHEN m.official_rate_usd_per_hour IS NOT NULL
+                  AND m.estimated_cost_usd IS NOT NULL THEN 1 ELSE 0 END) priced,
+        SUM(CASE WHEN m.official_rate_usd_per_hour IS NULL
+                  AND m.state='running' THEN 1 ELSE 0 END) unpriced
       FROM miner_observations m JOIN group_state g ON g.id=m.group_id
       WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 24 HOUR
       GROUP BY g.organization";
