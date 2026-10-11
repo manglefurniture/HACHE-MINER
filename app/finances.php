@@ -78,7 +78,7 @@ function miner_finance_overview(): array {
 
 /** Parse the official read-only Salad GPU catalog: id is the exact Salad
  * GPU class identifier used by container groups; name is display-only.
- * Deliberately does NOT interpret class names as billing prices.
+ * Price objects are passed through for strictly validated price extraction.
  */
 function miner_rate_parse_salad_gpu_classes(array $payload): array
 {
@@ -91,7 +91,8 @@ function miner_rate_parse_salad_gpu_classes(array $payload): array
         $name=trim((string)($item['name']??''));
         if(!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/D',$id) ||
             $name==='' || mb_strlen($name)>100)continue;
-        $result['gpu:'.$id]=['id'=>$id,'name'=>$name,'source'=>'salad'];
+        $result['gpu:'.$id]=['id'=>$id,'name'=>$name,'source'=>'salad',
+            'prices'=>is_array($item['prices']??null)?$item['prices']:[]];
     }
     uasort($result,static fn($a,$b)=>strnatcasecmp($a['name'],$b['name']));
     return array_values($result);
