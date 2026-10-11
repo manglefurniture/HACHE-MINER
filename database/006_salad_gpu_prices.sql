@@ -18,3 +18,10 @@ CREATE TABLE IF NOT EXISTS salad_gpu_price_changes (
  observed_at DATETIME NOT NULL,
  KEY idx_price_history (organization,gpu_class,priority,observed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Capture the effective class, priority and verified USD/h on EACH new sample.
+-- Older rows remain NULL/unknown; their manual cost estimate is never reclassified.
+ALTER TABLE miner_observations
+ ADD COLUMN IF NOT EXISTS gpu_class_at_observation VARCHAR(120) NULL,
+ ADD COLUMN IF NOT EXISTS priority_at_observation VARCHAR(30) NULL,
+ ADD COLUMN IF NOT EXISTS official_rate_usd_per_hour DECIMAL(12,6) NULL;
