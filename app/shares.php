@@ -301,6 +301,23 @@ function miner_share_learning_dashboard(): array
         ORDER BY m.observed_at DESC,m.id DESC LIMIT 6000")->fetchAll(PDO::FETCH_ASSOC);
     $result=miner_share_analyze($samples,$hash,time());
     $result['capture_coverage']=miner_share_capture_diagnostics($samples,$hash);
+    // Count existing scrubbed log categories without returning log text.
+    try {
+        $query="SELECT COUNT(*) AS lines,
+            COALESCE(SUM(LOWER(l.summary) LIKE '%share%'),0) AS share_lines,
+            COALESCE(SUM(LOWER(l.summary) LIKE '%accepted%'),0) AS accepted_lines,
+            COALESCE(SUM(LOWER(l.summary) LIKE '%rejected%'),0) AS rejected_lines,
+            COALESCE(SUM(LOWER(l.summary) LIKE '%shares accepted%'),0) AS expected_format,
+            COALESCE(SUM(LOWER(l.summary) LIKE '%shares:%'),0) AS colon_format
+          FROM log_events l JOIN group_state g ON g.id=l.group_id
+          WHERE l.logged_at>=UTC_TIMESTAMP()-INTERVAL 2 HOUR
+            AND (LOWER(g.group_name) LIKE 'prl-%' OR LOWER(g.group_name) LIKE 'guanabacoa-%')";
+        $row=$db->query($query)->fetch(PDO::FETCH_ASSOC);
+        $result['log_coverage']=array_map('intval',$row?:[]);
+    } catch(Throwable $e) {
+        error_log('[hache-miner] optional-share-log-counts '.get_class($e));
+        $result['log_coverage']=['unavailable'=>true];
+    }
     return $result;
 }
 
