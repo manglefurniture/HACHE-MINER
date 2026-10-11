@@ -127,7 +127,8 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
             'key'=>$key,'gpu'=>$identified[$id],'organization'=>$r['organization'],
             'priority'=>$r['priority'],'group'=>$r['group_name'],'instance_id'=>$r['instance_id'],
             'accepted_delta'=>0,'covered_seconds'=>0,'intervals'=>0,'resets'=>0,
-            'last_at'=>0,'last_counter'=>null,'last_increment_ts'=>null,'no_change_seconds'=>0
+            'last_at'=>0,'last_counter'=>null,'last_increment_ts'=>null,'no_change_seconds'=>0,
+            'recent_interval_shares'=>null,'recent_interval_minutes'=>null,'recent_interval_at'=>null
         ];
         $d=&$devices[$id];
         $delta=$active && ($last[$id]['active']??false)?miner_share_delta($last[$id],$current):null;
@@ -137,6 +138,12 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
                 $d['covered_seconds']+=$delta['seconds'];
                 $d['accepted_delta']+=$delta['accepted'];
                 $d['intervals']++;
+                // Último tramo completo de aproximadamente cinco minutos, no ventana móvil exacta.
+                if($delta['seconds']>=240 && $delta['seconds']<=360 && $at>=$now-600 && $at<=$now+120){
+                    $d['recent_interval_shares']=$delta['accepted'];
+                    $d['recent_interval_minutes']=round($delta['seconds']/60,1);
+                    $d['recent_interval_at']=gmdate('Y-m-d H:i:s',$at);
+                }
                 if ($delta['accepted']>0) {$d['last_increment_ts']=$at;$d['no_change_seconds']=0;}
                 else $d['no_change_seconds']+=$delta['seconds'];
             }
