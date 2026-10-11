@@ -46,6 +46,17 @@ function trial_row(int $sec,int $count,string $id='a',string $model='RTX 4070 La
 $t=$now-3000;
 $rows=[trial_row($t,10),trial_row($t+300,12),trial_row($t+600,12),trial_row($t+900,16),
        trial_row($t+1200,2),trial_row($t+1500,7),trial_row($t+1800,8)];
+// Production-sized hash-rate series: seven timestamp-indexed samples previously
+// raised TypeError in array_slice($points,-12,true) under PHP 8.4 strict_types.
+$hashSeries=[];
+for($i=0;$i<7;$i++){
+    $h=trial_row($now-2100+$i*300,10+$i);
+    $h['hashrate_ths']=80+$i;
+    $hashSeries[]=$h;
+}
+$withHashes=miner_share_analyze($rows,$hashSeries,$now);
+shcheck(count($withHashes['groups'])===1 && count($withHashes['devices'])===1,
+    'Timestamped peer samples must not throw or suppress share history');
 $result=miner_share_analyze($rows,[],$now);
 $d=$result['devices'][0]??[];
 $recent=miner_share_analyze($rows,[],$t+2000)['devices'][0]??[];

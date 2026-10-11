@@ -180,7 +180,7 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
     $peers=[];
     foreach ($hashes as $id=>$v) {
         ksort($v['points']);
-        $points=$v['points'];$recent=array_slice($points,-12,true);
+        $points=$v['points'];$recent=array_slice($points,-12,null,true);
         $oldest=$recent===[]?0:(int)array_key_first($recent);
         $newest=$recent===[]?0:(int)array_key_last($recent);
         if(count($recent)<6 || $newest-$oldest<1500 || $newest<$now-600)continue;
