@@ -34,7 +34,12 @@ function miner_salad_price_rows(array $catalog): array
 }
 function miner_salad_prices_ready(PDO $db):bool
 {
-    try {$db->query('SELECT 1 FROM salad_gpu_prices LIMIT 0');return true;}
+    try {
+        $db->query('SELECT organization,gpu_class,priority,usd_per_hour FROM salad_gpu_prices LIMIT 0');
+        $db->query('SELECT 1 FROM salad_gpu_price_changes LIMIT 0');
+        $db->query('SELECT gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour FROM miner_observations LIMIT 0');
+        return true;
+    }
     catch(PDOException $e) {
         if(in_array((string)$e->getCode(),['42S02','42S22'],true))return false;
         throw $e;
