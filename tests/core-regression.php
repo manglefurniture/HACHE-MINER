@@ -141,4 +141,8 @@ check(str_contains($view,'name="action" value="salad_org_secret"') &&
       str_contains($view,"miner_put_secret('salad:org:'.\$org.':api-key'"),
     'Scoped key form must be authenticated and bound to an existing organization');
 
+check(str_contains($view, '$monitorGroups[]=$group;'), 'All recent Salad groups must be included');
+check(str_contains($view, "foreach(\$g['instances'] as \$node)"), 'Use confirmed instance inventory rather than measured miners');
+check(!str_contains($view, '$producingGroups') && !str_contains($view, 'if($count===0)continue;'), 'Never hide groups or organizations lacking metrics');
+check(str_contains($view, 'réplicas solicitadas aún no confirmadas'), 'Show unconfirmed replica slots');
 echo "PASS core-security-regression\n";
