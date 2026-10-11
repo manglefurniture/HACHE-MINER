@@ -118,7 +118,7 @@ function miner_share_analyze(array $rows,array $hashRows,int $now): array
     foreach ($rows as $r) {
         $id=(string)$r['group_id'].':'.(string)$r['instance_id'];
         if (!isset($identified[$id]))continue;
-        if (!str_starts_with(strtolower((string)($r['group_name']??'')),'prl-'))continue;
+        if (!miner_share_is_prl_group((string)($r['group_name']??'')))continue;
         $at=strtotime((string)($r['observed_at']??''));
         $counter=$r['accepted_shares']??null;
         if ($at===false)continue;
