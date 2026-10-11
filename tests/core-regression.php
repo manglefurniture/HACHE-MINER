@@ -113,12 +113,13 @@ check(miner_rate_valid_priority('lowest') && miner_rate_valid_priority('low') &&
       'All four Salad priority tiers required');
 check(!miner_rate_valid_priority('batch') && !miner_rate_valid_priority(''), 'Unknown priority accepted');
 $view=file_get_contents(dirname(__DIR__).'/public/index.php');
-check(str_contains($view,'name="rate_gpu_choice"') &&
-      str_contains($view,'<option value="lowest">Lowest</option>') &&
-      str_contains($view,'miner_rate_valid_priority($priority)'),
-      'Production rate form must offer official GPU selector and Lowest');
+check(!str_contains($view,'name="rate_gpu_choice"') &&
+      !str_contains($view,"elseif (\$action==='rate')") &&
+      str_contains($view,'Tarifas oficiales de Salad') &&
+      str_contains($view,'miner_salad_current_prices(miner_db())'),
+      'Production rate UI must be read-only and show official verified prices');
 check(!str_contains($view,'name="gpu_class_custom"'),
-      'Manual text field must not override selected Salad GPU');
+      'Unverified freeform GPU input must not be accepted');
 
 
 // Guanabacoa must be readable with a scoped credential without affecting Hache.
