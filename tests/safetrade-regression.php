@@ -15,4 +15,10 @@ try {
     miner_safetrade_read('/trade/market/trades',['&unsafe'=>'1']);
     throw new RuntimeException('Unsafe query accepted');
 } catch (InvalidArgumentException $e) {}
+$settings=file_get_contents(dirname(__DIR__).'/public/index.php');
+st_assert(is_string($settings),'Settings source unavailable');
+foreach (["\$action==='safetrade_credentials'", "if (\$page!=='settings')", "miner_check_csrf()", "miner_require_admin()", "miner_put_secret('safetrade:api-key'", "miner_put_secret('safetrade:api-secret'", 'name="safetrade_api_key"', 'name="safetrade_api_secret"', 'type="password"'] as $expected) {
+    st_assert(str_contains($settings,$expected),'SafeTrade credential form security contract missing');
+}
+st_assert(!str_contains($settings,"value=\"<?= miner_get_secret('safetrade"),'Secret value must never appear in HTML');
 echo "SAFETRADE_READONLY_CONTRACT_OK\n";
