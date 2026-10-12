@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
 require_once __DIR__.'/salad-gpu-prices.php';
+require_once __DIR__.'/lowest-rules.php';
 
 /** Separar estados de asignación de evidencia de minería. */
 function miner_monitor_status(string $groupState, bool $recent, int $desired, int $observed, int $ready): string {
@@ -453,6 +454,9 @@ function miner_monitor_current_snapshot_nodes(array $rows,string $snapshotAt): a
 function miner_monitor_inventory(): array {
     $db=miner_db();
     $targets=miner_salad_targets(false);
+    $lowestReferences=miner_lowest_reference_data($db);
+    $rates=miner_salad_current_prices($db);
+    $lowestPrices=miner_lowest_price_index($rates);
     $groups=$db->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,gpu_class,last_seen_at FROM group_state WHERE last_seen_at >= UTC_TIMESTAMP()-INTERVAL 8 HOUR ORDER BY organization,project_name,group_name')->fetchAll(PDO::FETCH_ASSOC);
     $query="SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started,m.gpu_class_at_observation
       FROM miner_observations m INNER JOIN (
@@ -561,6 +565,12 @@ function miner_monitor_inventory(): array {
                 'at'=>$latest['observed_at']
             ]:null;
             $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric'],$group['pearlhash_verified']);
+            if(strtolower((string)$group['priority'])==='lowest') {
+                $lowestSignal=miner_lowest_signal((string)$group['organization'],
+                    (string)($node['gpu_class']??''),$node['metric'],
+                    $group['pearlhash_verified'],$lowestReferences['profiles'],$lowestPrices);
+                if($lowestSignal!==null)$node['signal']=$lowestSignal;
+            }
             $node['avg_recent']=null;
             if(count($rows)>=2){
                 $recentRows=array_slice($rows,-3);
@@ -586,9 +596,9 @@ function miner_monitor_inventory(): array {
     }
     unset($group);
     // Rates are catalog entries confirmed by the administrator, not invoices.
-    $rates=miner_salad_current_prices($db);
     $gpuNames=miner_monitor_gpu_class_labels($db);
     return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
+        'lowest_references'=>$lowestReferences,
         'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now),
         'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now,$gpuNames)];
 }
