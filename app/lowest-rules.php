@@ -14,13 +14,27 @@ function miner_lowest_median(array $values): ?float {
         : ((float)$values[intdiv($n,2)-1]+(float)$values[intdiv($n,2)])/2;
 }
 
-/** Pure reducer; all inputs must be actual historical observations. */
-function miner_lowest_profiles_from_rows(array $rows,array $verifiedGroups,int $maxModels=5):array {
-    $groups=array_fill_keys(array_map('intval',$verifiedGroups),true);
+/**
+ * A group-wide PRL event is insufficient. Historical sample must have
+ * explicit pearlhash evidence in its own time window (not 72h apart).
+ * Timestamp arrays are sorted ascending; binary search keeps it bounded.
+ */
+function miner_lowest_evidence_near(array $timestamps,int $at):bool {
+    $lo=0;$hi=count($timestamps);
+    $start=$at-900;$end=$at+120;
+    while($lo<$hi) {
+        $mid=intdiv($lo+$hi,2);
+        if($timestamps[$mid]<$start)$lo=$mid+1;
+        else $hi=$mid;
+    }
+    return isset($timestamps[$lo]) && $timestamps[$lo]<=$end;
+}
+
+/** Pure reducer; explicit algorithm evidence must accompany every observation. */
+function miner_lowest_profiles_from_rows(array $rows,array $evidence,int $maxModels=5):array {
     $buckets=[];
     foreach($rows as $r) {
-        if(!isset($groups[(int)($r['group_id']??-1)])
-            || strtolower((string)($r['priority_at_observation']??''))!=='lowest'
+        if(strtolower((string)($r['priority_at_observation']??''))!=='lowest'
             || strtolower((string)($r['state']??''))!=='running'
             || (int)($r['ready']??0)!==1 || (int)($r['started']??0)!==1)continue;
         $org=(string)($r['organization']??'');
@@ -32,6 +46,8 @@ function miner_lowest_profiles_from_rows(array $rows,array $verifiedGroups,int $
             (string)($r['observed_at']??''),new DateTimeZone('UTC'));
         if($org===''||$class===''||$gpu===''||!$at
             ||!is_numeric($hash)||!is_numeric($rate))continue;
+        $groupId=(int)($r['group_id']??-1);
+        if(!miner_lowest_evidence_near($evidence[$groupId]??[],$at->getTimestamp()))continue;
         $hash=(float)$hash;$rate=(float)$rate;
         if(!is_finite($hash)||$hash<=0||$hash>20000
             ||!is_finite($rate)||$rate<=0||$rate>100)continue;
@@ -72,30 +88,43 @@ function miner_lowest_profiles_from_rows(array $rows,array $verifiedGroups,int $
 }
 
 /**
- * Only recent explicit [pearlhash] log evidence qualifies historical groups.
- * Bounded rows prevent the small VPS from materializing unbounded history.
+ * Read explicit algorithm evidence and priced observations in bounded batches.
+ * Non-PRL groups are excluded BEFORE the observation limit is applied.
  */
 function miner_lowest_reference_data(PDO $db):array {
     if(!function_exists('miner_salad_prices_ready') || !miner_salad_prices_ready($db))
         return ['profiles'=>[],'partial'=>false,'observations'=>0,'reason'=>'Sin tarifas oficiales'];
-    $groupIds=$db->query("SELECT DISTINCT group_id FROM log_events
-        WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 72 HOUR
-          AND summary LIKE '%[pearlhash]%'")->fetchAll(PDO::FETCH_COLUMN);
-    if($groupIds===[])return ['profiles'=>[],'partial'=>false,'observations'=>0];
+    $logs=$db->query("SELECT group_id,logged_at FROM log_events
+        WHERE logged_at>=UTC_TIMESTAMP()-INTERVAL 72 HOUR-INTERVAL 15 MINUTE
+          AND summary LIKE '%[pearlhash]%'
+        ORDER BY group_id,logged_at LIMIT 30001")->fetchAll(PDO::FETCH_ASSOC);
+    if(count($logs)>30000)return ['profiles'=>[],'partial'=>true,'observations'=>0];
+    $evidence=[];
+    foreach($logs as $log) {
+        $at=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',
+            (string)$log['logged_at'],new DateTimeZone('UTC'));
+        if($at!==false)$evidence[(int)$log['group_id']][]=$at->getTimestamp();
+    }
+    if($evidence===[])return ['profiles'=>[],'partial'=>false,'observations'=>0];
+    $ids=array_keys($evidence);
+    if(count($ids)>300)return ['profiles'=>[],'partial'=>true,'observations'=>0];
+    $placeholders=implode(',',array_fill(0,count($ids),'?'));
     $sql="SELECT m.group_id,m.instance_id,m.observed_at,m.state,m.ready,m.started,
         m.priority_at_observation,m.gpu_class_at_observation,m.gpu_model,
         m.hashrate_ths,m.official_rate_usd_per_hour,g.organization
         FROM miner_observations m JOIN group_state g ON g.id=m.group_id
         WHERE m.observed_at>=UTC_TIMESTAMP()-INTERVAL 72 HOUR
+          AND m.group_id IN ($placeholders)
           AND m.priority_at_observation='lowest'
           AND m.state='running' AND m.ready=1 AND m.started=1
           AND m.hashrate_ths>0 AND m.gpu_class_at_observation IS NOT NULL
           AND m.official_rate_usd_per_hour>0
         ORDER BY m.observed_at DESC,m.id DESC LIMIT 18001";
-    $rows=$db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    $st=$db->prepare($sql);
+    $st->execute($ids);
+    $rows=$st->fetchAll(PDO::FETCH_ASSOC);
     $partial=count($rows)>18000;
-    // A truncated ranking is not a trustworthy ranking: fail closed.
-    return ['profiles'=>$partial?[]:miner_lowest_profiles_from_rows($rows,$groupIds),
+    return ['profiles'=>$partial?[]:miner_lowest_profiles_from_rows($rows,$evidence),
         'partial'=>$partial,'observations'=>min(count($rows),18000)];
 }
 
