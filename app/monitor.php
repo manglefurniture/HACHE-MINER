@@ -565,7 +565,7 @@ function miner_monitor_inventory(): array {
                 'at'=>$latest['observed_at']
             ]:null;
             $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric'],$group['pearlhash_verified']);
-            if(strtolower((string)$group['priority'])==='lowest') {
+            if(in_array(strtolower((string)$group['priority']),['lowest','batch'],true)) {
                 $lowestSignal=miner_lowest_signal((string)$group['organization'],
                     (string)($node['gpu_class']??''),$node['metric'],
                     $group['pearlhash_verified'],$lowestReferences['profiles'],$lowestPrices);
