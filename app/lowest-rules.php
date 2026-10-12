@@ -159,7 +159,7 @@ function miner_lowest_signal(string $organization,string $gpuClass,?array $metri
     $hash=$metric['hashrate_ths']??null;
     if(!is_numeric($hash)||!is_finite((float)$hash)||(float)$hash<0)
         return array_replace($pending,['level'=>'unknown','label'=>'Medición inválida']);
-    $key=$organization."\\0".$gpuClass;
+    $key=$organization."\0".$gpuClass;
     $reference=$profiles[$key]??null;
     if($reference===null)return array_replace($pending,[
         'label'=>'Aprendiendo · faltan mediciones verificadas'
