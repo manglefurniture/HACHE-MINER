@@ -6,6 +6,7 @@ require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/shares.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
+require_once dirname(__DIR__).'/app/salad-gpu-identity.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -41,12 +42,18 @@ function miner_group_upsert(string $org,string $project,array $group): ?array {
     $state=substr((string)($group['current_state']['status']??'unknown'),0,50);
     $priority=strtolower((string)($group['container']['priority']??$group['priority']??''));
     $classes=$group['container']['resources']['gpu_classes']??[];
-    $class=is_array($classes)&&count($classes)===1?(string)$classes[0]:null;
+    $allowed=[];
+    if(is_array($classes))foreach($classes as $id) {
+        if(is_string($id) && preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/D',$id))
+            $allowed[$id]=$id;
+    }
+    $allowed=array_values($allowed);
+    $class=count($allowed)===1?$allowed[0]:null;
     $replicas=max(0,min(10000,(int)($group['replicas']??0)));
     $sql='INSERT INTO group_state (organization,project_name,group_name,state,priority,desired_replicas,gpu_class,last_seen_at) VALUES (?,?,?,?,?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id),state=VALUES(state),priority=VALUES(priority),desired_replicas=VALUES(desired_replicas),gpu_class=VALUES(gpu_class),last_seen_at=UTC_TIMESTAMP()';
     $st=miner_db()->prepare($sql);
     $st->execute([$org,$project,$name,$state,$priority,$replicas,$class]);
-    return ['id'=>(int)miner_db()->lastInsertId(),'name'=>$name,'state'=>$state,'priority'=>$priority,'gpu_class'=>$class,'replicas'=>$replicas];
+    return ['id'=>(int)miner_db()->lastInsertId(),'name'=>$name,'state'=>$state,'priority'=>$priority,'gpu_class'=>$class,'gpu_classes'=>$allowed,'replicas'=>$replicas];
 }
 function miner_log_save(int $groupId,array $items,array $nodes): void {
     $st=miner_db()->prepare('INSERT IGNORE INTO log_events(event_hash,group_id,logged_at,severity,summary) VALUES (?,?,?,?,?)');
@@ -180,9 +187,8 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             $snapshotAt=gmdate('Y-m-d H:i:s');
             // Only authenticated Salad prices refreshed recently are eligible.
             // Legacy manual gpu_rates are never used for billing estimates.
-            $rate=$g['gpu_class']!==null
-                ?miner_salad_price_for(miner_db(),$org,$g['gpu_class'],$g['priority'])
-                :null;
+            $priority=$g['priority']==='batch'?'lowest':$g['priority'];
+            $names=miner_gpu_catalog_names(miner_db(),$org);
             // The log response may identify multiple different instances.
             // Only attribute a hashrate to a matching instance or a provably
             // unique running node; never divide a group hashrate across replicas.
@@ -197,7 +203,21 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
-                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metrics[$id]??null,$shareCounters[$id]??null,$g['gpu_class'],$g['priority']);
+                $metric=$metrics[$id]??null;
+                // An explicit per-instance miner model takes precedence even
+                // if the group allows only one class. Contradictions stay NULL.
+                $gpuClass=$metric!==null
+                    ?miner_gpu_class_for_model($g['gpu_classes'],(string)($metric['gpu']??''),$names)
+                    :$g['gpu_class'];
+                if($gpuClass===null && $metric===null && miner_salad_prices_ready(miner_db())) {
+                    $gpuClass=miner_gpu_previous_running_class(miner_db(),$g['id'],$id,
+                        $priority,$snapshotAt,$g['gpu_classes']);
+                }
+                $rate=$gpuClass!==null
+                    ?miner_salad_price_for(miner_db(),$org,$gpuClass,$priority)
+                    :null;
+                miner_instance_save($g['id'],$node,$snapshotAt,$rate,$metric,
+                    $shareCounters[$id]??null,$gpuClass,$priority);
             }
             // Update the group snapshot marker also when Salad returns zero
             // instances; this immediately makes older replica cards obsolete.

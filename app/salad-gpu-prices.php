@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
+require_once __DIR__.'/salad-gpu-identity.php';
 
 /** Prices are USD per GPU-hour, as returned by authenticated SaladCloud GPU Classes. */
 function miner_salad_price_rows(array $catalog): array
@@ -91,6 +92,15 @@ function miner_salad_price_sync(PDO $db,string $org,array $catalog):int
     $history=$db->prepare("INSERT INTO salad_gpu_price_changes
       (organization,gpu_class,priority,usd_per_hour,observed_at)
       VALUES (?,?,?,?,UTC_TIMESTAMP())");
+    // Persist official catalog display names from the SAME authenticated
+    // response as the rates. Never derive a class from a group label.
+    $saveNames=null;
+    if (function_exists('miner_gpu_names_ready') && miner_gpu_names_ready($db)) {
+        $saveNames=$db->prepare("INSERT INTO salad_gpu_class_names
+          (organization,gpu_class,name,observed_at)
+          VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE
+          name=VALUES(name),observed_at=VALUES(observed_at)");
+    }
     $db->beginTransaction();
     try{
         foreach($rates as $rate){
@@ -101,6 +111,16 @@ function miner_salad_price_sync(PDO $db,string $org,array $catalog):int
             if($previous===false || number_format((float)$previous,6,'.','')!==$amount)
                 $history->execute([...$key,$amount]);
             $upsert->execute([...$key,$amount]);
+        }
+        if($saveNames!==null) {
+            foreach($catalog as $gpu) {
+                if(!is_array($gpu))continue;
+                $id=(string)($gpu['id']??'');
+                $name=trim((string)($gpu['name']??''));
+                if(!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,119}$/D',$id)
+                    || $name==='' || mb_strlen($name)>100)continue;
+                $saveNames->execute([$org,$id,$name]);
+            }
         }
         $db->commit();
     }catch(Throwable $e){$db->rollBack();throw $e;}

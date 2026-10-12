@@ -359,7 +359,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <td data-label="GPU listas"><?= (int)$d['count'] ?></td></tr>
 <?php endforeach; ?></tbody></table></div>
 <?php endif; ?>
-<?php if($liveCost['unpriced']>0): ?><p class="muted">Para completar los costos, introduce las tarifas reales de las GPU faltantes en <a href="/?page=settings">Configuración → Tarifas de GPU</a>. No se estiman precios desconocidos.</p><?php endif; ?>
+<?php if($liveCost['unpriced']>0): ?><p class="muted">Las GPU sin precio requieren una clase de hardware identificada y una tarifa oficial reciente. Consulta <a href="/?page=settings">Configuración → Tarifas de GPU</a> y el siguiente sondeo; no se inventan precios.</p><?php endif; ?>
 </details>
 <p class="muted">Este total suma únicamente TH/s individuales verificados y recientes, sin contar dos veces la misma instancia. No incluye máquinas sin medición ni sirve para calcular beneficios; si hay algoritmos distintos, sus tasas no son económicamente comparables.</p>
 <p class="muted">Actualización automática de Salad cada cinco minutos. Aquí solo aparecen grupos reportados durante las últimas ocho horas. Los eliminados o antiguos conservan su historial privado, pero no saturan el monitor.</p>
