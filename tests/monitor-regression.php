@@ -343,4 +343,67 @@ monitor_assert(miner_monitor_producing_nodes(
     array_replace($viewGroup,['instances'=>[$makeViewNode('zero',0.0)]]),$viewNow)===[],
     'A real zero TH/s reading has no production card');
 
+// Lowest rules: only historically priced individual pearlhash readings,
+// bounded by time, can qualify for a per-class / per-organization reference.
+$lowestRows=[];$lowestEvidence=[];
+$sample=function(int $group,string $org,string $class,string $gpu,int $number,
+    string $priority='lowest',?string $price='0.060000',bool $hasPearlhash=true)
+    use (&$lowestRows,&$lowestEvidence):void {
+    $ts=1760000000+$number*300;
+    $lowestRows[]=[
+      'group_id'=>$group,'instance_id'=>'node-'.($number%3),'organization'=>$org,
+      'priority_at_observation'=>$priority,'state'=>'running','ready'=>1,'started'=>1,
+      'observed_at'=>gmdate('Y-m-d H:i:s',$ts),
+      'gpu_class_at_observation'=>$class,'gpu_model'=>$gpu,
+      'hashrate_ths'=>$class==='class-a'?80:120,'official_rate_usd_per_hour'=>$price
+    ];
+    if($hasPearlhash)$lowestEvidence[$group][]=$ts;
+};
+for($i=0;$i<33;$i++)$sample(1,'guanabacoa','class-a','RTX 4070 Laptop',$i);
+for($i=0;$i<28;$i++)$sample(2,'hache','class-b','RTX 5060 Ti',$i,'lowest','0.080000');
+for($i=0;$i<60;$i++)$sample(3,'hache','class-qtc','RTX 4090',$i,'lowest','0.060000',false);
+for($i=0;$i<60;$i++)$sample(4,'hache','class-low','RTX 5080',$i,'low');
+for($i=0;$i<60;$i++)$sample(5,'hache','class-unpriced','RTX 5070',$i,'lowest',null);
+$lowestEvidence[3]=[1759000000]; // old PRL activity cannot verify current QTC readings
+$references=miner_lowest_profiles_from_rows($lowestRows,$lowestEvidence);
+monitor_assert(count($references)===2,'Only time-verified priced Lowest references qualify');
+$referenceList=array_values($references);
+monitor_assert($referenceList[0]['gpu_class']==='class-a' && $referenceList[0]['samples']===33,
+    'Highest effective observation count must rank first');
+monitor_assert($referenceList[1]['gpu_class']==='class-b' && $referenceList[1]['samples']===28,
+    'Eligible second-ranked GPU must be retained');
+monitor_assert(count(miner_lowest_profiles_from_rows($lowestRows,$lowestEvidence,1))===1,
+    'Top-N limit must be respected');
+monitor_assert(!miner_lowest_evidence_near([1759000000],1760000000),
+    'A prior different-algorithm session cannot qualify an observation');
+monitor_assert(miner_lowest_evidence_near([1760000000],1760000600),
+    'PRL proof in the same 15-min window must qualify');
+$rates=miner_lowest_price_index([
+  ['organization'=>'guanabacoa','gpu_class'=>'class-a','priority'=>'lowest','usd_per_hour'=>'0.060000'],
+  ['organization'=>'hache','gpu_class'=>'class-b','priority'=>'lowest','usd_per_hour'=>'0.080000'],
+  ['organization'=>'guanabacoa','gpu_class'=>'class-a','priority'=>'low','usd_per_hour'=>'0.200000']
+]);
+$eval=function(float $ths,bool $verified=true,string $org='guanabacoa')use($references,$rates):?array {
+    return miner_lowest_signal($org,'class-a',['hashrate_ths'=>$ths],$verified,$references,$rates);
+};
+monitor_assert($eval(80)['level']==='green','Healthy Lowest historical efficiency');
+monitor_assert($eval(68)['level']==='yellow','Lowest below 90 percent of median');
+monitor_assert($eval(59)['level']==='red','Lowest below 75 percent of median');
+monitor_assert($eval(80,false)===null,'Unverified live pearlhash must stay neutral');
+monitor_assert($eval(80,true,'hache')===null,'A different organization must not borrow a rule');
+monitor_assert(miner_lowest_signal('guanabacoa','class-a',['hashrate_ths'=>80],true,$references,[])===null,
+    'Missing current official rate must disable thresholds');
+monitor_assert(miner_lowest_signal('guanabacoa','class-a',null,true,$references,$rates)===null,
+    'Missing individual reading cannot be green');
+$higherPrice=miner_lowest_price_index([
+  ['organization'=>'guanabacoa','gpu_class'=>'class-a','priority'=>'lowest','usd_per_hour'=>'0.120000']
+]);
+$priceUp=miner_lowest_signal('guanabacoa','class-a',['hashrate_ths'=>80],true,$references,$higherPrice);
+monitor_assert($priceUp['level']==='red' && $priceUp['floor']===120.0,
+    'Higher official prices must raise TH/s required for relative efficiency');
+monitor_assert(miner_lowest_profiles_from_rows(array_slice($lowestRows,0,10),$lowestEvidence)===[],
+    'Ten readings cannot qualify for a rule');
+monitor_assert(str_contains(file_get_contents(dirname(__DIR__).'/app/monitor.php'),
+    "['lowest','batch']"),'Live group priority must recognize Salad batch as Lowest');
+
 echo "PASS dynamic-monitor-regression\n";

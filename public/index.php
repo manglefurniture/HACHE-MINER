@@ -378,7 +378,25 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <div><strong><?= (int)$monitorData['stats']['desired'] ?></strong><small>Réplicas solicitadas</small></div>
 <div><strong><?= (int)$monitorData['stats']['observed'] ?></strong><small>Instancias observadas</small></div>
 <div><strong><?= (int)$monitorData['stats']['ready'] ?></strong><small>Contenedores listos</small></div></div>
-<p class="muted">En espera: <?= (int)$monitorData['stats']['waiting'] ?>. El color de rendimiento es una <strong>referencia de TH/s</strong> para minería PRL con RTX 4070 Ti SUPER Low, no una afirmación de rentabilidad neta en USD. El automático de Hache Natación permanece activo e independiente.</p>
+<p class="muted">En espera: <?= (int)$monitorData['stats']['waiting'] ?>. Los colores indican referencias operativas de TH/s (RTX 4070 Ti SUPER Low) o eficiencia relativa TH/s por USD/h (modelos con suficiente historial Lowest). <strong>No son ganancias netas verificadas.</strong> Las referencias Lowest son informativas y no activan reasignaciones automáticas. El automático existente permanece independiente.</p>
+<?php $lowestReferenceData=$monitorData['lowest_references']??['profiles'=>[],'partial'=>false,'observations'=>0]; ?>
+<details class="monitor-cost-detail">
+<summary>Referencias de eficiencia · GPU Lowest con más mediciones <small><?= count($lowestReferenceData['profiles']) ?> modelos elegibles</small></summary>
+<p class="muted">Se eligen hasta cinco modelos por organización y clase exacta, ordenados por número de mediciones individuales válidas en las últimas 72 horas. Requieren al menos 24 lecturas y una hora de cobertura, tarifa oficial histórica y evidencia de pearlhash. Verde: 90% o más de la eficiencia histórica; amarillo: 75–90%; rojo: menos del 75%. Se compara TH/s por USD/h, <strong>no rentabilidad neta en dólares</strong>.</p>
+<?php if(!empty($lowestReferenceData['partial'])): ?><p class="muted">Historial demasiado amplio para una clasificación completa. Referencias suspendidas para evitar decisiones con datos parciales.</p>
+<?php elseif(empty($lowestReferenceData['profiles'])): ?><p class="muted">Todavía no hay suficientes lecturas verificadas con tarifa oficial para habilitar referencias Lowest. Las GPU siguen en aprendizaje.</p>
+<?php else: ?>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>GPU</th><th>Mediciones</th><th>Instancias</th><th>TH/s mediana</th><th>TH/s por USD/h mediana</th></tr></thead><tbody>
+<?php foreach($lowestReferenceData['profiles'] as $reference): ?>
+<tr><td data-label="Organización"><?= miner_h(strtoupper($reference['organization'])) ?></td>
+<td data-label="GPU"><?= miner_h($reference['gpu']) ?></td>
+<td data-label="Mediciones"><?= (int)$reference['samples'] ?></td>
+<td data-label="Instancias"><?= (int)$reference['instances'] ?></td>
+<td data-label="TH/s mediana"><?= miner_h(number_format($reference['median_ths'],2,'.',',')) ?></td>
+<td data-label="Eficiencia"><?= miner_h(number_format($reference['median_efficiency'],2,'.',',')) ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php endif; ?>
+</details>
 <?php
 // Filtrar solo la vista de tarjetas; el inventario, las tarifas, los totales
 // y las reglas de reasignación siguen calculándose con los datos completos.
@@ -439,7 +457,8 @@ foreach($monitorData['groups'] as $group) {
  <span>TH/s</span>
 </div>
 <?php if($signal['floor']!==null): ?>
-<p class="monitor-margin">Umbral inferior orientativo: <?= miner_h(number_format($signal['floor'],0)) ?> TH/s · Margen: <strong><?= $signal['margin']>0?'+':'' ?><?= miner_h(number_format($signal['margin'],2,'.','')) ?> TH/s</strong></p>
+<p class="monitor-margin"><?= ($signal['kind']??'')==='lowest_relative'?'Umbral de eficiencia relativa Lowest':'Umbral inferior orientativo' ?>: <?= miner_h(number_format($signal['floor'],2,'.','')) ?> TH/s · Margen: <strong><?= $signal['margin']>0?'+':'' ?><?= miner_h(number_format($signal['margin'],2,'.','')) ?> TH/s</strong>
+<?php if(($signal['kind']??'')==='lowest_relative'): ?><small> · <?= (int)$signal['samples'] ?> mediciones históricas · $<?= miner_h(number_format($signal['rate'],4,'.',',')) ?> USD/h oficial · sin reasignación automática</small><?php endif; ?></p>
 <?php elseif($m===null): ?><p class="monitor-margin">Sin medición individual reciente. Contenedor listo no significa shares aceptados.</p>
 <?php else: ?><p class="monitor-margin">Sin umbral de rentabilidad validado para esta GPU o moneda.</p><?php endif; ?>
 <div class="monitor-trend">
