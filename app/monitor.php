@@ -569,7 +569,7 @@ function miner_monitor_inventory(): array {
                 $lowestSignal=miner_lowest_signal((string)$group['organization'],
                     (string)($node['gpu_class']??''),$node['metric'],
                     $group['pearlhash_verified'],$lowestReferences['profiles'],$lowestPrices);
-                if($lowestSignal!==null)$node['signal']=$lowestSignal;
+                $node['signal']=$lowestSignal;
             }
             $node['avg_recent']=null;
             if(count($rows)>=2){
