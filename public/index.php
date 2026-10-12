@@ -711,7 +711,7 @@ foreach($monitorData['groups'] as $group) {
 <?php elseif($page==='history'): ?>
 <?php require __DIR__.'/../app/history-summary-view.php'; ?>
 <section class="card">
-<h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
+<details><summary><strong>Diagnóstico técnico de shares · últimas 30 horas</strong></summary>
 <?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
 <p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
 <?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
@@ -767,10 +767,11 @@ Estos números son observaciones, no shares acreditados por Kryptex.</p>
 </tr><?php endforeach; ?></tbody></table></div>
 <?php if(count($shareLearning['devices'])>100):?><p class="muted">Vista limitada a las primeras 100 instancias; los registros completos permanecen en MariaDB.</p><?php endif; ?>
 <p class="muted">Las prioridades y las clases son las actuales del grupo; no se reconstruyen retroactivamente sus cambios. Solo se analizan grupos de pruebas PRL (prefijo prl-). En grupos multirréplica, los shares sin identidad de instancia nunca se atribuyen a una GPU.</p>
+</details>
 </section>
 
 <section class="card">
-<h2>Comparación de GPU · últimos siete días</h2>
+<details><summary><strong>Comparación técnica diaria por organización y grupo · últimos siete días</strong></summary><h2>Comparación de GPU · últimos siete días</h2>
 <p class="muted">Fechas de Cancún; una fila por organización, grupo y modelo GPU. Las muestras se guardan por instancia en MariaDB aunque se reasigne el nodo. Se cuentan lecturas con hashrate individual válido, no tiempo ininterrumpido ni PRL por tarjeta. El promedio TH/s no incluye muestras sin medición.</p>
 <p class="muted"><strong>Prioridad mostrada: actual del grupo.</strong> Si cambió de Lowest a Low/Medium, la tabla no certifica la prioridad histórica de esas observaciones. Para pruebas con cambios de prioridad, comparar los tramos a partir de los registros de configuración de Salad.</p>
 <?php if($trialHistory['partial']): ?><p class="warn">Se muestra un máximo de 600 filas. Este listado es parcial.</p><?php endif; ?>
@@ -789,6 +790,7 @@ Estos números son observaciones, no shares acreditados por Kryptex.</p>
 </tr><?php endforeach; ?>
 </tbody></table></div>
 <?php if(!$trialHistory['rows']): ?><p class="muted">El recolector aún no ha registrado observaciones dentro de los siete días seleccionados.</p><?php endif; ?>
+</details>
 </section>
 <div class="grid"><section class="card"><h2>Últimos ciclos</h2><div class="tablewrap mobile-stack"><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
 <?php foreach($runs as $r): ?><tr><td data-label="Fuente"><?= miner_h($r['source_name']) ?></td><td data-label="UTC"><?= miner_h($r['observed_at']) ?></td><td data-label="Estado"><?= miner_h($r['status']) ?></td><td data-label="Detalle"><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
