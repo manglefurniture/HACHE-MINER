@@ -90,7 +90,7 @@ function miner_history_reduce(array &$models,?array &$previous,array $r,array $n
         } else miner_history_add($models,$intervalModel,$intervalPriority,'unpriced_seconds',$gap);
     }
     if($ready && $priorRunning && $previous['ready']
-        && $previous['model']===$model && $gap<=660) {
+        && $previous['model']===$model && $previous['priority']===$priority && $gap<=660) {
         $cur=$r['accepted_shares']??null;$before=$previous['shares'];
         if(is_numeric($cur) && is_numeric($before) && (float)$cur>=0 && (float)$before>=0) {
             $delta=(int)$cur-(int)$before;
@@ -146,10 +146,12 @@ function miner_history_summary():array {
         ORDER BY m.group_id,m.instance_id,m.observed_at LIMIT 100001";
     $models=[];$prev=null;$rows=0;$oldest=null;$newest=null;$limit=100000;
     // MySQL unbuffered result avoids materializing 100k observations in PHP.
-    $buffered=true;$changed=false;
+    $changed=false;
     try {
         if(defined('PDO::MYSQL_ATTR_USE_BUFFERED_QUERY')) {
-            $buffered=$db->getAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY);
+            // Core creates the PDO connection with MySQL's default buffering ON.
+            // getAttribute() for this driver-specific flag is not supported by
+            // all PDO MySQL versions; avoid using it.
             $db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,false);
             $changed=true;
         }
@@ -164,7 +166,7 @@ function miner_history_summary():array {
         }
         $st->closeCursor();
     }finally{
-        if($changed)$db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,$buffered);
+        if($changed)$db->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,true);
     }
     return ['unavailable'=>false,'rows'=>miner_history_finish($models),
         'partial'=>$rows>$limit,'scanned'=>min($rows,$limit),
