@@ -30,7 +30,7 @@ function miner_gpu_model_key(string $name):?string {
     if($name==='' || preg_match('/\.\.\.|…/u',$name))return null;
     $name=preg_replace('/\([^)]*\b(?:gb|gib|mb)\b[^)]*\)/i',' ', $name)??$name;
     $name=preg_replace('/\b\d+\s*(?:gb|gib|mb)\b/i',' ', $name)??$name;
-    $name=preg_replace('/\b(?:nvidia|geforce|graphics|gpu|card)\b/i',' ',$name)??$name;
+    $name=preg_replace('/\b(?:nvidia|geforce|amd|radeon|intel|graphics|gpu|card)\b/i',' ',$name)??$name;
     $key=strtolower(preg_replace('/[^a-z0-9]+/i','',$name)??'');
     return strlen($key)>=5 && strlen($key)<=100 ? $key:null;
 }
