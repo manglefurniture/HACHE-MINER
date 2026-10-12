@@ -43,6 +43,7 @@ jobs:
           php tests/salad-credits-regression.php
           php tests/remember-regression.php
           php tests/deploy-regression.php
+          php tests/diagnostics-regression.php
       - name: Verify deploy settings
         shell: bash
         env:

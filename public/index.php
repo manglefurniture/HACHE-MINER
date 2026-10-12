@@ -632,20 +632,24 @@ foreach($monitorData['groups'] as $group) {
 <div class="kpis">
 <div><strong><?= (int)$collectorDiag['summary']['fresh'] ?></strong><small>Proyectos con lectura reciente</small></div>
 <div><strong><?= (int)$collectorDiag['summary']['stale'] ?></strong><small>Proyectos atrasados</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['rates_fresh'] ?></strong><small>Catálogos de tarifas recientes</small></div>
+<div><strong><?= (int)$collectorDiag['summary']['rates_stale'] ?></strong><small>Catálogos de tarifas atrasados</small></div>
 <div><strong><?= (int)$collectorDiag['summary']['groups_seen'] ?></strong><small>Grupos observados en 15 min</small></div>
 <div><strong><?= (int)$collectorDiag['summary']['ready'] ?> / <?= (int)$collectorDiag['summary']['instances'] ?></strong><small>Listas / observadas (10 min)</small></div>
 </div>
-<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización / proyecto</th><th>Estado</th><th>Último ciclo UTC</th><th>Grupos 15 min</th><th>Réplicas solicitadas</th><th>Instancias observadas</th><th>Listas</th></tr></thead><tbody>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización / proyecto</th><th>Estado</th><th>Último ciclo UTC</th><th>Tarifas oficiales</th><th>Último error</th><th>Grupos 15 min</th><th>Réplicas solicitadas</th><th>Instancias observadas</th><th>Listas</th></tr></thead><tbody>
 <?php foreach($collectorDiag['targets'] as $t): ?>
 <tr><td data-label="Organización"><strong><?= miner_h($t['label']) ?></strong><small><?= miner_h($t['organization'].' / '.$t['project']) ?></small></td>
 <td data-label="Estado"><?= miner_h($t['status']==='pausado'?'Pausado':miner_collector_health_label($t['status'])) ?></td>
 <td data-label="Último ciclo UTC"><?= miner_h((string)($t['observed_at']??'Sin datos')) ?><small><?= miner_h((string)($t['detail']??'')) ?></small></td>
+<td data-label="Tarifas oficiales"><?= miner_h(miner_rate_catalog_health_label((string)$t['rate_status'])) ?><small><?= $t['rate_observed_at']===null?'Sin dato verificable':miner_h((string)$t['rate_observed_at']).' · '.(int)$t['rate_entries'].' tarifas' ?></small></td>
+<td data-label="Último error"><?= $t['last_error_at']===null?'Sin error registrado':miner_h((string)$t['last_error_at']) ?><small><?= $t['last_error_status']===null?'':miner_h((string)$t['last_error_status']) ?></small></td>
 <td data-label="Grupos 15 min"><?= (int)$t['groups_seen'] ?></td>
 <td data-label="Solicitadas"><?= (int)$t['desired_replicas'] ?></td>
 <td data-label="Observadas 10 min"><?= (int)$t['instances'] ?></td>
 <td data-label="Listas 10 min"><?= (int)$t['ready'] ?></td></tr>
 <?php endforeach; ?></tbody></table></div>
-<p class="muted">«Observadas» son instancias únicas vistas en 10 minutos; «listas» cumplen running + ready + started. Ninguno de estos estados acredita shares aceptados ni hashrate de PRL. Réplicas solicitadas y muestras históricas no son máquinas activas.</p></section>
+<p class="muted">«Observadas» son instancias únicas vistas en 10 minutos; «listas» cumplen running + ready + started. Ninguno de estos estados acredita shares aceptados ni hashrate de PRL. «Tarifas oficiales» usa exclusivamente el catálogo autenticado ya almacenado: si falta, vence o el último refresco fue parcial, no se sustituye por USD 0. «Último error» no implica que el ciclo actual haya fallado.</p></section>
 <section class="card"><h2>Advertencias recientes (24 h)</h2>
 <?php if(!$collectorDiag['warnings']): ?><p class="muted">Sin advertencias de logs registradas durante las últimas 24 horas. No implica ausencia de fallos fuera de la cobertura.</p><?php else: ?>
 <div class="tablewrap mobile-stack"><table><thead><tr><th>UTC</th><th>Organización</th><th>Grupo</th><th>Mensaje depurado</th></tr></thead><tbody>
