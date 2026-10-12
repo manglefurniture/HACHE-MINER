@@ -54,12 +54,13 @@ miner_history_reduce($m,$prev,$make(12,'hache','A','2026-10-11 11:20:00','class-
 history_assert($m['RTX 5060']['observed_seconds']===0 && $m['RTX 5060']['sessions']===2,
     'Gaps >7 minutes must not become billed time or a single session');
 $page=file_get_contents(__DIR__.'/../public/index.php');
-history_assert(str_contains($page,'Resumen acumulado por modelo de GPU')
+$view=file_get_contents(__DIR__.'/../app/history-summary-view.php');
+history_assert(str_contains($view,'Resumen acumulado por modelo de GPU')
     && str_contains($page,'miner_history_summary()')
-    && str_contains($page,'Desglose por prioridad histórica verificada'),
+    && str_contains($view,'Detalle por prioridad histórica registrada'),
     'New main history section or priority details missing');
-history_assert(str_contains($page,'Sin tarifa histórica') &&
-    str_contains($page,'Vigilancia reciente'), 'Missing evidence cannot masquerade as zero');
+history_assert(str_contains($view,'Sin tarifa histórica') &&
+    str_contains($view,'Alertas recientes'), 'Missing evidence cannot masquerade as zero');
 $source=file_get_contents(__DIR__.'/../app/history-summary.php');
 history_assert(!str_contains($source,'UPDATE ') && !str_contains($source,'INSERT INTO'),
     'History must remain read-only');
