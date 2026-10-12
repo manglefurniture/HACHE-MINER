@@ -14,6 +14,11 @@ $names=[
   'uuid-5090laptop'=>'NVIDIA GeForce RTX 5090 Laptop GPU',
 ];
 $allowed=array_keys($names);
+$names['uuid-rx6800']='AMD Radeon RX 6800';
+identity_assert(miner_gpu_class_for_model(['uuid-rx6800'],'RX 6800',$names)==='uuid-rx6800',
+    'AMD RX alias must match official Radeon branding');
+identity_assert(miner_gpu_class_for_model(['uuid-rx6800'],'Radeon RX 6800',$names)==='uuid-rx6800',
+    'Radeon brand must not block legitimate class matching');
 identity_assert(miner_gpu_class_for_model($allowed,'RTX 5060',$names)==='uuid-5060',
   '5060 must not be mistaken for 5060 Ti');
 identity_assert(miner_gpu_class_for_model($allowed,'RTX 5060 Ti',$names)==='uuid-5060ti',
