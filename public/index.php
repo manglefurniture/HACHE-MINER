@@ -6,6 +6,7 @@ require_once dirname(__DIR__).'/app/pool-overview.php';
 require_once dirname(__DIR__).'/app/monitor.php';
 require_once dirname(__DIR__).'/app/shares.php';
 require_once dirname(__DIR__).'/app/trial-history.php';
+require_once dirname(__DIR__).'/app/history-summary.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/accounting.php';
 require_once dirname(__DIR__).'/app/salad-credits.php';
@@ -170,7 +171,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$rateGpuCatalogue=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$shareLearning=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$rateGpuCatalogue=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$trialHistory=null;$shareLearning=null;$modelHistory=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -227,7 +228,16 @@ try {
             }
         }
         if ($page==='dashboard' || $page==='history') $poolOverview=miner_pool_overview();
-        if ($page==='history') {$trialHistory=miner_trial_history_compare();$shareLearning=miner_share_learning_safe(static fn()=>miner_share_learning_dashboard());}
+        if ($page==='history') {
+            $trialHistory=miner_trial_history_compare();
+            $shareLearning=miner_share_learning_safe(static fn()=>miner_share_learning_dashboard());
+            try {$modelHistory=miner_history_summary();}
+            catch(Throwable $historyError) {
+                error_log('[hache-miner] model-history '.get_class($historyError));
+                $modelHistory=['unavailable'=>true,'rows'=>[],
+                    'reason'=>'No se pudo completar el resumen. El historial técnico sigue disponible.'];
+            }
+        }
         if ($page==='settings') {
             // Official verified rates are already loaded above from the local cache.
             // Do not fetch a live GPU catalog just to display these values.
@@ -700,7 +710,301 @@ foreach($monitorData['groups'] as $group) {
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
 <section class="card">
-<h2>Aprendizaje de shares por GPU · últimas 30 horas</h2>
+<h2>Resumen acumulado por modelo de GPU</h2>
+<p class="muted">Una sola fila por modelo, sumando todas las organizaciones y grupos. Las horas son <strong>horas-GPU observadas</strong>: dos máquinas trabajando una hora suman dos horas. Se incluyen intervalos running de hasta siete minutos aun sin shares, con cobertura parcial cuando falta una lectura o tarifa.</p>
+<?php if(!empty($modelHistory['unavailable'])): ?>
+<p class="warn"><?= miner_h($modelHistory['reason']??'El resumen no está disponible.') ?></p>
+<?php else: ?>
+<p class="muted"><strong><?= (int)$modelHistory['scanned'] ?> observaciones procesadas</strong> · Desde <?= miner_h($modelHistory['start_utc']??'sin datos') ?> hasta <?= miner_h($modelHistory['end_utc']??'sin datos') ?> UTC.
+<?php if($modelHistory['partial']): ?><strong>Vista parcial por límite de procesamiento; no representa todo el historial.</strong><?php endif; ?></p>
+<?php if($modelHistory['rows']): ?>
+<?php
+$historyAlerts=[];
+if(empty($shareLearning['unavailable'])) {
+    foreach($shareLearning['devices']??[] as $dev) {
+        $gpu=miner_share_gpu_family((string)($dev['gpu']??''));
+        if($gpu!=='' && ($dev['signal']??'')==='watch')
+            $historyAlerts[$gpu]=($historyAlerts[$gpu]??0)+1;
+    }
+}
+?>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Modelo de GPU</th><th>Sesiones</th><th>Tiempo observado</th><th>Costo estimado USD</th><th>TH/s medio</th><th>Shares aceptadas</th><th>Rechazadas</th><th>Vigilancia reciente</th></tr></thead>
+<tbody>
+<?php foreach($modelHistory['rows'] as $row): ?>
+<tr>
+<td data-label="Modelo GPU">
+<details>
+<summary><strong><?= miner_h($row['gpu']==='SIN_IDENTIFICAR'?'GPU sin identificar':$row['gpu']) ?></strong></summary>
+<p class="muted">Desglose por prioridad histórica verificada. «Sin registro» significa que esa prioridad no se puede reconstruir. Las duraciones no son facturación oficial de Salad.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Prioridad</th><th>Sesiones</th><th>Horas GPU</th><th>USD estimados</th><th>TH/s medio</th><th>Shares aceptadas</th><th>Cobertura sin tarifa</th></tr></thead><tbody>
+<?php foreach($row['priorities'] as $detail): ?>
+<tr>
+<td data-label="Prioridad"><?= miner_h($detail['priority']==='sin_registro'?'Sin registro':ucfirst($detail['priority'])) ?></td>
+<td data-label="Sesiones"><?= (int)$detail['sessions'] ?></td>
+<td data-label="Horas GPU"><?= miner_h(number_format($detail['observed_seconds']/3600,2,'.',',')) ?> h</td>
+<td data-label="Costo"><?= $detail['cost_intervals']>0?'
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
+<p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
+<?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
+<?php else: ?>
+<?= (int)$lc['lines'] ?> líneas;
+<?= (int)$lc['share_lines'] ?> mencionan shares;
+<?= (int)$lc['accepted_lines'] ?> mencionan accepted;
+<?= (int)$lc['rejected_lines'] ?> mencionan rejected;
+<?= (int)$lc['expected_format'] ?> formato shares accepted;
+<?= (int)$lc['colon_format'] ?> formato shares:.
+<?php endif; ?> Solo recuentos, sin texto ni identidades de los logs.</p>
+<?php endif; ?>
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['capture_coverage']??null)): $coverage=$shareLearning['capture_coverage']; ?>
+<p class="muted"><strong>Diagnóstico de captura (últimas 30 h):</strong>
+<?= (int)$coverage['observations'] ?> registros PRL,
+<?= (int)$coverage['running'] ?> de instancias activas,
+<?= (int)$coverage['counters'] ?> con contador aceptado,
+<?= (int)$coverage['counters_with_gpu'] ?> con GPU identificable,
+<?= (int)$coverage['valid_pairs'] ?> pares válidos,
+<?= (int)$coverage['positive_pairs'] ?> con incremento.
+Último contador: <?= miner_h((string)($coverage['latest_counter_utc']??'sin lectura')) ?> UTC.
+<?php if(!empty($coverage['sample_limit_reached'])): ?>Hay más registros que el límite de consulta: cobertura parcial.<?php endif; ?>
+Estos números son observaciones, no shares acreditados por Kryptex.</p>
+<?php endif; ?>
+<?php if(!empty($shareLearning['unavailable'])): ?><p class="muted"><strong>Datos de shares temporalmente no disponibles.</strong> <?= miner_h((string)($shareLearning['error_reason']??'La consulta no pudo completarse.')) ?> El histórico de TH/s y la minería continúan independientes.</p><?php endif; ?>
+<p class="muted">Shares aceptados extraídos de resúmenes acumulativos de SRBMiner y vinculados a una instancia comprobada. Las lecturas repetidas no se suman. Cuando el contador se reinicia, no se interpreta la diferencia como shares perdidos. Las ventanas con más de 11 minutos entre muestras se excluyen.</p>
+<p class="muted"><strong>Alertas informativas:</strong> una caída sostenida de TH/s frente a tres o más GPU comparables, o 45 minutos observados sin nuevos shares. Ninguna señal reasigna, apaga o cambia prioridades. El número bruto de shares depende de la dificultad asignada por el pool: no se compara para sancionar ni sirve para calcular PRL reales.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización</th><th>Modelo GPU</th><th>Prioridad actual</th><th>Máquinas con datos</th><th>Mediana shares/h sin normalizar</th><th>Tiempo cubierto</th><th>Alertas informativas</th></tr></thead><tbody>
+<?php foreach($shareLearning['groups'] as $grp): ?><tr>
+<td data-label="Org."><?= miner_h(strtoupper((string)$grp['organization'])) ?></td>
+<td data-label="GPU"><?= miner_h($grp['gpu']) ?></td>
+<td data-label="Prioridad actual"><?= miner_h((string)$grp['priority_current']) ?></td>
+<td data-label="GPU"><?= (int)$grp['devices'] ?></td>
+<td data-label="Mediana bruta"><?= miner_h(number_format((float)$grp['median_shares_hour_raw'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$grp['coverage_minutes']) ?> min</td>
+<td data-label="Alertas"><?= (int)$grp['watch'] ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(!$shareLearning['groups']): ?><p class="muted">En aprendizaje: el recolector aún no tiene dos contadores acumulados válidos y atribuibles para una misma GPU.</p><?php endif; ?>
+<h3>Detalle de GPU con contadores comprobados</h3>
+<p class="muted">Último tramo ~5 min: diferencia entre dos lecturas separadas entre 4 y 6 minutos, terminada hace como máximo 10 minutos. No equivale a los últimos 5 minutos exactos ni a shares acreditados por el pool.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización / grupo</th><th>Modelo</th><th>Shares observados</th><th>Último tramo ~5 min</th><th>Shares/h brutos</th><th>Período cubierto</th><th>Reinicios de contador</th><th>Evaluación</th></tr></thead><tbody>
+<?php foreach(array_slice($shareLearning['devices'],0,100) as $device): ?><tr>
+<td data-label="Grupo"><?= miner_h(strtoupper((string)$device['organization']).' / '.$device['group']) ?><small> · nodo …<?= miner_h(substr((string)$device['instance_id'],-8)) ?></small></td>
+<td data-label="Modelo"><?= miner_h($device['gpu']) ?></td>
+<td data-label="Shares"><?= (int)$device['accepted_delta'] ?></td>
+<td data-label="Último tramo ~5 min"><?php if($device['recent_interval_shares']!==null): ?><?= (int)$device['recent_interval_shares'] ?> <small><?= miner_h((string)$device['recent_interval_minutes']) ?> min · <?= miner_h((string)$device['recent_interval_at']) ?> UTC</small><?php else: ?>Sin lectura reciente<?php endif; ?></td>
+<td data-label="Shares/h"><?= miner_h(number_format((float)$device['accepted_per_hour'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$device['covered_minutes']) ?> min</td>
+<td data-label="Reinicios"><?= (int)$device['resets'] ?></td>
+<td data-label="Evaluación"><strong><?= $device['signal']==='watch'?'REVISAR':'Aprendiendo' ?></strong><small><?= miner_h($device['note']) ?></small></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(count($shareLearning['devices'])>100):?><p class="muted">Vista limitada a las primeras 100 instancias; los registros completos permanecen en MariaDB.</p><?php endif; ?>
+<p class="muted">Este diagnóstico técnico usa prioridades actuales del grupo y una ventana de treinta horas; no reconstruye cambios anteriores. Las shares sin identidad de instancia nunca se atribuyen a una GPU.</p>
+</details>
+</section>
+
+<section class="card">
+<details><summary><strong>Detalle técnico diario por organización y grupo · últimos siete días</strong></summary>
+<h2>Comparación de GPU · últimos siete días</h2>
+<p class="muted">Fechas de Cancún; una fila por organización, grupo y modelo GPU. Las muestras se guardan por instancia en MariaDB aunque se reasigne el nodo. Se cuentan lecturas con hashrate individual válido, no tiempo ininterrumpido ni PRL por tarjeta. El promedio TH/s no incluye muestras sin medición.</p>
+<p class="muted"><strong>Prioridad mostrada: actual del grupo.</strong> Si cambió de Lowest a Low/Medium, la tabla no certifica la prioridad histórica de esas observaciones. Para pruebas con cambios de prioridad, comparar los tramos a partir de los registros de configuración de Salad.</p>
+<?php if($trialHistory['partial']): ?><p class="warn">Se muestra un máximo de 600 filas. Este listado es parcial.</p><?php endif; ?>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Día Cancún</th><th>Organización</th><th>Grupo / GPU</th><th>Prioridad actual</th><th>Instancias diferentes</th><th>Muestras totales</th><th>Lecturas con TH/s</th><th>TH/s medio</th></tr></thead>
+<tbody>
+<?php foreach($trialHistory['rows'] as $entry): ?><tr>
+<td data-label="Día"><?= miner_h($entry['day']) ?></td>
+<td data-label="Organización"><?= miner_h(strtoupper($entry['organization'])) ?></td>
+<td data-label="Grupo / GPU"><strong><?= miner_h($entry['group']) ?></strong><br><small>Proyecto: <?= miner_h($entry['project']) ?> · GPU: <?= miner_h($entry['gpu']) ?></small></td>
+<td data-label="Prioridad actual"><?= miner_h($entry['priority_current']) ?></td>
+<td data-label="Nodos distintos"><?= (int)$entry['instances'] ?></td>
+<td data-label="Muestras"><?= (int)$entry['samples'] ?></td>
+<td data-label="Lecturas válidas"><?= (int)$entry['observed'] ?></td>
+<td data-label="TH/s medio"><?= $entry['avg_ths']===null?'Sin medición':miner_h(number_format($entry['avg_ths'],2,'.',',')) ?></td>
+</tr><?php endforeach; ?>
+</tbody></table></div>
+<?php if(!$trialHistory['rows']): ?><p class="muted">El recolector aún no ha registrado observaciones dentro de los siete días seleccionados.</p><?php endif; ?>
+</details>
+</section>
+<div class="grid"><section class="card"><h2>Últimos ciclos</h2><div class="tablewrap mobile-stack"><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
+<?php foreach($runs as $r): ?><tr><td data-label="Fuente"><?= miner_h($r['source_name']) ?></td><td data-label="UTC"><?= miner_h($r['observed_at']) ?></td><td data-label="Estado"><?= miner_h($r['status']) ?></td><td data-label="Detalle"><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
+<section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
+<?php foreach($charges as $c):?><tr><td><?= miner_h($c['organization']) ?></td><td><?= miner_h($c['period_start'].' → '.$c['period_end']) ?></td><td><?= miner_h($c['amount_usd']) ?></td></tr><?php endforeach;?></table></section></div>
+<?php else: ?>
+<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">SALDO PRL · KRYPTEX</div>
+<strong><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['confirmed_prl']).' PRL confirmados' : 'Sin lectura completa' ?></strong>
+<small><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['pending_prl']).' PRL pendientes' : 'No se sustituyen datos desconocidos por cero' ?></small></div></div>
+<section class="card"><h2>Kryptex · seguimiento de billeteras públicas</h2>
+<p class="muted">Saldos observados del pool; no son ingresos del periodo ni fondos vendidos. Si dos organizaciones comparten dirección, se cuenta solo una vez. El hashrate pertenece al conjunto de workers por billetera y no permite atribuir GPU individuales.</p>
+<?php if($poolOverview['wallets']): ?>
+<p><strong><?= (int)$poolOverview['distinct_wallets'] ?></strong> direcciones únicas ·
+<?php if($poolOverview['workers']!==null): ?><strong><?= (int)$poolOverview['workers'] ?></strong> workers online · <?php endif; ?>
+<?php if($poolOverview['hashrate_ths']!==null): ?><strong><?= miner_h($poolOverview['hashrate_ths']) ?> TH/s</strong> promedio de 30 minutos<?php else: ?>Hashrate no completamente observado<?php endif; ?></p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Billetera</th><th>Organizaciones asociadas</th><th>Lectura UTC</th><th>Pendiente PRL</th><th>Confirmado PRL</th><th>Workers online</th><th>Hashrate TH/s</th><th>Estado de sincronización</th></tr></thead><tbody>
+<?php foreach($poolOverview['wallets'] as $wallet): ?><tr>
+<td data-label="Billetera"><?= miner_h($wallet['label'].' · …'.$wallet['suffix']) ?></td>
+<td data-label="Asociada a"><?= miner_h(implode(', ',array_map('strtoupper',$wallet['organizations']))) ?></td>
+<td data-label="Lectura UTC"><?= miner_h($wallet['observed_at']??'Pendiente') ?> <?= $wallet['fresh']?'':'(sin lectura reciente)' ?></td>
+<td data-label="Pendiente PRL"><?= miner_h($wallet['pending']??'Sin datos') ?></td>
+<td data-label="Confirmado PRL"><?= miner_h($wallet['confirmed']??'Sin datos') ?></td>
+<td data-label="Workers"><?= $wallet['workers']===null?'Sin datos':(int)$wallet['workers'] ?></td>
+<td data-label="Hashrate TH/s"><?= miner_h($wallet['hashrate_ths']??'Sin datos') ?></td>
+<td data-label="Sincronización"><?= miner_h($wallet['sync_status']??'Sin datos') ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if($poolOverview['too_many']): ?><p class="muted">La lista supera el límite de lectura de 100 registros. No se publican totales incompletos.</p><?php endif; ?>
+<?php else: ?><p class="muted">No hay billeteras PRL registradas todavía.</p><?php endif; ?></section>
+<section class="card"><h2>Grupos de SaladCloud</h2><p class="muted">Instancias únicas observadas en los últimos 10 minutos. «Listas» indica contenedores running, ready y started; no confirma minería PRL.</p><div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado grupo</th><th>Prioridad</th><th>Solicitadas</th><th>Observadas</th><th>Listas</th><th>Última lectura UTC</th></tr></thead><tbody>
+<?php foreach($groups as $g): $snap=$replicaStates[(int)$g['id']]??null; ?><tr>
+<td data-label="Organización"><?= miner_h(strtoupper($g['organization'])) ?></td><td data-label="Grupo"><?= miner_h($g['group_name']) ?></td>
+<td data-label="Estado grupo"><?= miner_h($g['state']) ?></td><td data-label="Prioridad"><?= miner_h((string)$g['priority']) ?></td>
+<td data-label="Solicitadas"><?= (int)$g['desired_replicas'] ?></td>
+<td data-label="Observadas"><?= $snap!==null?(int)$snap['observed']:'Sin muestras' ?></td>
+<td data-label="Listas"><?= $snap!==null?(int)$snap['ready']:'Sin muestras' ?></td>
+<td data-label="Última lectura UTC"><?= miner_h($g['last_seen_at']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$groups):?><p class="muted">Aún no hay historial. Configura las claves de Salad y activa el recolector.</p><?php endif; ?></section>
+<?php endif; ?>
+<?php endif; ?></main><footer>HACHE INTERACTIVE · MINER MONITORING · Las estimaciones no equivalen a cargos facturados.</footer></body></html>
+.miner_h(number_format($detail['cost_usd'],4,'.',',')):'Sin tarifa comprobada' ?></td>
+<td data-label="TH/s"><?= $detail['avg_ths']===null?'Sin lectura':miner_h(number_format($detail['avg_ths'],2,'.',',')) ?></td>
+<td data-label="Aceptadas"><?= $detail['accepted_intervals']>0?(int)$detail['accepted']:'Sin pares válidos' ?></td>
+<td data-label="Sin tarifa"><?= miner_h(number_format($detail['unpriced_seconds']/3600,2,'.',',')) ?> h</td>
+</tr>
+<?php endforeach; ?></tbody></table></div>
+</details>
+</td>
+<td data-label="Sesiones"><?= (int)$row['sessions'] ?></td>
+<td data-label="Horas GPU"><?= miner_h(number_format($row['observed_seconds']/3600,2,'.',',')) ?> h</td>
+<td data-label="USD estimados">
+<?= $row['cost_intervals']>0?'
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
+<p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
+<?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
+<?php else: ?>
+<?= (int)$lc['lines'] ?> líneas;
+<?= (int)$lc['share_lines'] ?> mencionan shares;
+<?= (int)$lc['accepted_lines'] ?> mencionan accepted;
+<?= (int)$lc['rejected_lines'] ?> mencionan rejected;
+<?= (int)$lc['expected_format'] ?> formato shares accepted;
+<?= (int)$lc['colon_format'] ?> formato shares:.
+<?php endif; ?> Solo recuentos, sin texto ni identidades de los logs.</p>
+<?php endif; ?>
+<?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['capture_coverage']??null)): $coverage=$shareLearning['capture_coverage']; ?>
+<p class="muted"><strong>Diagnóstico de captura (últimas 30 h):</strong>
+<?= (int)$coverage['observations'] ?> registros PRL,
+<?= (int)$coverage['running'] ?> de instancias activas,
+<?= (int)$coverage['counters'] ?> con contador aceptado,
+<?= (int)$coverage['counters_with_gpu'] ?> con GPU identificable,
+<?= (int)$coverage['valid_pairs'] ?> pares válidos,
+<?= (int)$coverage['positive_pairs'] ?> con incremento.
+Último contador: <?= miner_h((string)($coverage['latest_counter_utc']??'sin lectura')) ?> UTC.
+<?php if(!empty($coverage['sample_limit_reached'])): ?>Hay más registros que el límite de consulta: cobertura parcial.<?php endif; ?>
+Estos números son observaciones, no shares acreditados por Kryptex.</p>
+<?php endif; ?>
+<?php if(!empty($shareLearning['unavailable'])): ?><p class="muted"><strong>Datos de shares temporalmente no disponibles.</strong> <?= miner_h((string)($shareLearning['error_reason']??'La consulta no pudo completarse.')) ?> El histórico de TH/s y la minería continúan independientes.</p><?php endif; ?>
+<p class="muted">Shares aceptados extraídos de resúmenes acumulativos de SRBMiner y vinculados a una instancia comprobada. Las lecturas repetidas no se suman. Cuando el contador se reinicia, no se interpreta la diferencia como shares perdidos. Las ventanas con más de 11 minutos entre muestras se excluyen.</p>
+<p class="muted"><strong>Alertas informativas:</strong> una caída sostenida de TH/s frente a tres o más GPU comparables, o 45 minutos observados sin nuevos shares. Ninguna señal reasigna, apaga o cambia prioridades. El número bruto de shares depende de la dificultad asignada por el pool: no se compara para sancionar ni sirve para calcular PRL reales.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización</th><th>Modelo GPU</th><th>Prioridad actual</th><th>Máquinas con datos</th><th>Mediana shares/h sin normalizar</th><th>Tiempo cubierto</th><th>Alertas informativas</th></tr></thead><tbody>
+<?php foreach($shareLearning['groups'] as $grp): ?><tr>
+<td data-label="Org."><?= miner_h(strtoupper((string)$grp['organization'])) ?></td>
+<td data-label="GPU"><?= miner_h($grp['gpu']) ?></td>
+<td data-label="Prioridad actual"><?= miner_h((string)$grp['priority_current']) ?></td>
+<td data-label="GPU"><?= (int)$grp['devices'] ?></td>
+<td data-label="Mediana bruta"><?= miner_h(number_format((float)$grp['median_shares_hour_raw'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$grp['coverage_minutes']) ?> min</td>
+<td data-label="Alertas"><?= (int)$grp['watch'] ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(!$shareLearning['groups']): ?><p class="muted">En aprendizaje: el recolector aún no tiene dos contadores acumulados válidos y atribuibles para una misma GPU.</p><?php endif; ?>
+<h3>Detalle de GPU con contadores comprobados</h3>
+<p class="muted">Último tramo ~5 min: diferencia entre dos lecturas separadas entre 4 y 6 minutos, terminada hace como máximo 10 minutos. No equivale a los últimos 5 minutos exactos ni a shares acreditados por el pool.</p>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Organización / grupo</th><th>Modelo</th><th>Shares observados</th><th>Último tramo ~5 min</th><th>Shares/h brutos</th><th>Período cubierto</th><th>Reinicios de contador</th><th>Evaluación</th></tr></thead><tbody>
+<?php foreach(array_slice($shareLearning['devices'],0,100) as $device): ?><tr>
+<td data-label="Grupo"><?= miner_h(strtoupper((string)$device['organization']).' / '.$device['group']) ?><small> · nodo …<?= miner_h(substr((string)$device['instance_id'],-8)) ?></small></td>
+<td data-label="Modelo"><?= miner_h($device['gpu']) ?></td>
+<td data-label="Shares"><?= (int)$device['accepted_delta'] ?></td>
+<td data-label="Último tramo ~5 min"><?php if($device['recent_interval_shares']!==null): ?><?= (int)$device['recent_interval_shares'] ?> <small><?= miner_h((string)$device['recent_interval_minutes']) ?> min · <?= miner_h((string)$device['recent_interval_at']) ?> UTC</small><?php else: ?>Sin lectura reciente<?php endif; ?></td>
+<td data-label="Shares/h"><?= miner_h(number_format((float)$device['accepted_per_hour'],2,'.',',')) ?></td>
+<td data-label="Cobertura"><?= miner_h((string)$device['covered_minutes']) ?> min</td>
+<td data-label="Reinicios"><?= (int)$device['resets'] ?></td>
+<td data-label="Evaluación"><strong><?= $device['signal']==='watch'?'REVISAR':'Aprendiendo' ?></strong><small><?= miner_h($device['note']) ?></small></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if(count($shareLearning['devices'])>100):?><p class="muted">Vista limitada a las primeras 100 instancias; los registros completos permanecen en MariaDB.</p><?php endif; ?>
+<p class="muted">Las prioridades y las clases son las actuales del grupo; no se reconstruyen retroactivamente sus cambios. Solo se analizan grupos de pruebas PRL (prefijo prl-). En grupos multirréplica, los shares sin identidad de instancia nunca se atribuyen a una GPU.</p>
+</section>
+
+<section class="card">
+<h2>Comparación de GPU · últimos siete días</h2>
+<p class="muted">Fechas de Cancún; una fila por organización, grupo y modelo GPU. Las muestras se guardan por instancia en MariaDB aunque se reasigne el nodo. Se cuentan lecturas con hashrate individual válido, no tiempo ininterrumpido ni PRL por tarjeta. El promedio TH/s no incluye muestras sin medición.</p>
+<p class="muted"><strong>Prioridad mostrada: actual del grupo.</strong> Si cambió de Lowest a Low/Medium, la tabla no certifica la prioridad histórica de esas observaciones. Para pruebas con cambios de prioridad, comparar los tramos a partir de los registros de configuración de Salad.</p>
+<?php if($trialHistory['partial']): ?><p class="warn">Se muestra un máximo de 600 filas. Este listado es parcial.</p><?php endif; ?>
+<div class="tablewrap mobile-stack"><table>
+<thead><tr><th>Día Cancún</th><th>Organización</th><th>Grupo / GPU</th><th>Prioridad actual</th><th>Instancias diferentes</th><th>Muestras totales</th><th>Lecturas con TH/s</th><th>TH/s medio</th></tr></thead>
+<tbody>
+<?php foreach($trialHistory['rows'] as $entry): ?><tr>
+<td data-label="Día"><?= miner_h($entry['day']) ?></td>
+<td data-label="Organización"><?= miner_h(strtoupper($entry['organization'])) ?></td>
+<td data-label="Grupo / GPU"><strong><?= miner_h($entry['group']) ?></strong><br><small>Proyecto: <?= miner_h($entry['project']) ?> · GPU: <?= miner_h($entry['gpu']) ?></small></td>
+<td data-label="Prioridad actual"><?= miner_h($entry['priority_current']) ?></td>
+<td data-label="Nodos distintos"><?= (int)$entry['instances'] ?></td>
+<td data-label="Muestras"><?= (int)$entry['samples'] ?></td>
+<td data-label="Lecturas válidas"><?= (int)$entry['observed'] ?></td>
+<td data-label="TH/s medio"><?= $entry['avg_ths']===null?'Sin medición':miner_h(number_format($entry['avg_ths'],2,'.',',')) ?></td>
+</tr><?php endforeach; ?>
+</tbody></table></div>
+<?php if(!$trialHistory['rows']): ?><p class="muted">El recolector aún no ha registrado observaciones dentro de los siete días seleccionados.</p><?php endif; ?>
+</section>
+<div class="grid"><section class="card"><h2>Últimos ciclos</h2><div class="tablewrap mobile-stack"><table><thead><tr><th>Fuente</th><th>UTC</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
+<?php foreach($runs as $r): ?><tr><td data-label="Fuente"><?= miner_h($r['source_name']) ?></td><td data-label="UTC"><?= miner_h($r['observed_at']) ?></td><td data-label="Estado"><?= miner_h($r['status']) ?></td><td data-label="Detalle"><?= miner_h($r['detail']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$runs):?><p class="muted">Sin observaciones. Se inicia historial después de habilitar el recolector.</p><?php endif; ?></section>
+<section class="card"><h2>Facturación conciliada</h2><table><tr><th>Org.</th><th>Período UTC</th><th>USD</th></tr>
+<?php foreach($charges as $c):?><tr><td><?= miner_h($c['organization']) ?></td><td><?= miner_h($c['period_start'].' → '.$c['period_end']) ?></td><td><?= miner_h($c['amount_usd']) ?></td></tr><?php endforeach;?></table></section></div>
+<?php else: ?>
+<div class="kpis"><div class="card"><div class="eyebrow">ORGANIZACIONES</div><strong><?= count(array_unique(array_column($targets,'organization_slug'))) ?></strong><small>Organizaciones configuradas</small></div><div class="card"><div class="eyebrow">GRUPOS OBSERVADOS</div><strong><?= count($groups) ?></strong><small>Registro desde activación</small></div><div class="card"><div class="eyebrow">COSTO FACTURADO</div><strong>Sin conciliar</strong><small>No sustituir por proyección</small></div><div class="card"><div class="eyebrow">SALDO PRL · KRYPTEX</div>
+<strong><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['confirmed_prl']).' PRL confirmados' : 'Sin lectura completa' ?></strong>
+<small><?= $poolOverview['all_balances_fresh'] ? miner_h($poolOverview['pending_prl']).' PRL pendientes' : 'No se sustituyen datos desconocidos por cero' ?></small></div></div>
+<section class="card"><h2>Kryptex · seguimiento de billeteras públicas</h2>
+<p class="muted">Saldos observados del pool; no son ingresos del periodo ni fondos vendidos. Si dos organizaciones comparten dirección, se cuenta solo una vez. El hashrate pertenece al conjunto de workers por billetera y no permite atribuir GPU individuales.</p>
+<?php if($poolOverview['wallets']): ?>
+<p><strong><?= (int)$poolOverview['distinct_wallets'] ?></strong> direcciones únicas ·
+<?php if($poolOverview['workers']!==null): ?><strong><?= (int)$poolOverview['workers'] ?></strong> workers online · <?php endif; ?>
+<?php if($poolOverview['hashrate_ths']!==null): ?><strong><?= miner_h($poolOverview['hashrate_ths']) ?> TH/s</strong> promedio de 30 minutos<?php else: ?>Hashrate no completamente observado<?php endif; ?></p>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Billetera</th><th>Organizaciones asociadas</th><th>Lectura UTC</th><th>Pendiente PRL</th><th>Confirmado PRL</th><th>Workers online</th><th>Hashrate TH/s</th><th>Estado de sincronización</th></tr></thead><tbody>
+<?php foreach($poolOverview['wallets'] as $wallet): ?><tr>
+<td data-label="Billetera"><?= miner_h($wallet['label'].' · …'.$wallet['suffix']) ?></td>
+<td data-label="Asociada a"><?= miner_h(implode(', ',array_map('strtoupper',$wallet['organizations']))) ?></td>
+<td data-label="Lectura UTC"><?= miner_h($wallet['observed_at']??'Pendiente') ?> <?= $wallet['fresh']?'':'(sin lectura reciente)' ?></td>
+<td data-label="Pendiente PRL"><?= miner_h($wallet['pending']??'Sin datos') ?></td>
+<td data-label="Confirmado PRL"><?= miner_h($wallet['confirmed']??'Sin datos') ?></td>
+<td data-label="Workers"><?= $wallet['workers']===null?'Sin datos':(int)$wallet['workers'] ?></td>
+<td data-label="Hashrate TH/s"><?= miner_h($wallet['hashrate_ths']??'Sin datos') ?></td>
+<td data-label="Sincronización"><?= miner_h($wallet['sync_status']??'Sin datos') ?></td>
+</tr><?php endforeach; ?></tbody></table></div>
+<?php if($poolOverview['too_many']): ?><p class="muted">La lista supera el límite de lectura de 100 registros. No se publican totales incompletos.</p><?php endif; ?>
+<?php else: ?><p class="muted">No hay billeteras PRL registradas todavía.</p><?php endif; ?></section>
+<section class="card"><h2>Grupos de SaladCloud</h2><p class="muted">Instancias únicas observadas en los últimos 10 minutos. «Listas» indica contenedores running, ready y started; no confirma minería PRL.</p><div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Estado grupo</th><th>Prioridad</th><th>Solicitadas</th><th>Observadas</th><th>Listas</th><th>Última lectura UTC</th></tr></thead><tbody>
+<?php foreach($groups as $g): $snap=$replicaStates[(int)$g['id']]??null; ?><tr>
+<td data-label="Organización"><?= miner_h(strtoupper($g['organization'])) ?></td><td data-label="Grupo"><?= miner_h($g['group_name']) ?></td>
+<td data-label="Estado grupo"><?= miner_h($g['state']) ?></td><td data-label="Prioridad"><?= miner_h((string)$g['priority']) ?></td>
+<td data-label="Solicitadas"><?= (int)$g['desired_replicas'] ?></td>
+<td data-label="Observadas"><?= $snap!==null?(int)$snap['observed']:'Sin muestras' ?></td>
+<td data-label="Listas"><?= $snap!==null?(int)$snap['ready']:'Sin muestras' ?></td>
+<td data-label="Última lectura UTC"><?= miner_h($g['last_seen_at']) ?></td></tr><?php endforeach; ?></tbody></table></div><?php if(!$groups):?><p class="muted">Aún no hay historial. Configura las claves de Salad y activa el recolector.</p><?php endif; ?></section>
+<?php endif; ?>
+<?php endif; ?></main><footer>HACHE INTERACTIVE · MINER MONITORING · Las estimaciones no equivalen a cargos facturados.</footer></body></html>
+.miner_h(number_format($row['cost_usd'],4,'.',',')):'Sin tarifa histórica' ?>
+<?php if($row['unpriced_seconds']>0): ?><small> Parcial: <?= miner_h(number_format($row['unpriced_seconds']/3600,2,'.',',')) ?> h sin tarifa</small><?php endif; ?>
+</td>
+<td data-label="TH/s medio"><?= $row['avg_ths']===null?'Sin medición':miner_h(number_format($row['avg_ths'],2,'.',',')) ?></td>
+<td data-label="Aceptadas"><?= $row['accepted_intervals']>0?(int)$row['accepted']:'Sin pares válidos' ?></td>
+<td data-label="Rechazadas">Sin historial</td>
+<td data-label="Vigilancia (30 h)"><?= empty($shareLearning['unavailable'])?(int)($historyAlerts[$row['gpu']]??0):'Sin cobertura' ?></td>
+</tr>
+<?php endforeach; ?></tbody></table></div>
+<?php else: ?><p class="muted">Aún no hay observaciones de GPU para consolidar.</p><?php endif; ?>
+<?php endif; ?>
+<p class="muted"><strong>Cómo se calcula:</strong> sesiones observadas son tramos consecutivos de una misma instancia, modelo y prioridad; horas-GPU excluyen huecos de sondeo. El gasto solo se suma cuando la tarifa oficial histórica y la clase coinciden en ambos extremos. El TH/s es promedio de muestras individuales válidas; las shares aceptadas son incrementos de contadores consecutivos, no pagos de PRL. Las rechazadas todavía no se conservan por GPU. Vigilancia indica señales informativas del diagnóstico de las últimas 30 h, no un contador histórico de alarmas.</p>
+</section>
+<section class="card">
+<details><summary><strong>Diagnóstico técnico de shares · últimas 30 horas</strong></summary>
 <?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
 <p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
 <?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
