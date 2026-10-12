@@ -33,6 +33,7 @@ jobs:
           php tests/kryptex-regression.php
           php tests/pool-observation-regression.php
           php tests/monitor-regression.php
+          php tests/monitor-gpu-names-regression.php
           php tests/shares-learning-regression.php
           php tests/trial-history-regression.php
           php tests/history-summary-regression.php
