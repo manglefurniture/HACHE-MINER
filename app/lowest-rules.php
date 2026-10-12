@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Lowest observations are ranked by verified individual measurements, never
- * by requested GPU count, group names alone, or assumed profitability.
+ * Each Lowest GPU receives an individual read-only indicator. Historical
+ * references use verified measurements, never requested counts or assumed profit.
  * These are relative efficiency references, NOT profit or auto-reallocation.
  */
 function miner_lowest_median(array $values): ?float {
@@ -31,7 +31,7 @@ function miner_lowest_evidence_near(array $timestamps,int $at):bool {
 }
 
 /** Pure reducer; explicit algorithm evidence must accompany every observation. */
-function miner_lowest_profiles_from_rows(array $rows,array $evidence,int $maxModels=5):array {
+function miner_lowest_profiles_from_rows(array $rows,array $evidence,int $maxModels=PHP_INT_MAX):array {
     $buckets=[];
     foreach($rows as $r) {
         if(strtolower((string)($r['priority_at_observation']??''))!=='lowest'
@@ -140,16 +140,34 @@ function miner_lowest_price_index(array $rates):array {
     return $out;
 }
 
-/** Only a LOWEST / verified PRL node with a selected historical reference. */
+/**
+ * Every Lowest instance receives an explicit signal, including a neutral
+ * learning/unknown state when no defensible model-specific threshold exists.
+ * Never borrow thresholds from Low or treat missing measurements as losses.
+ */
 function miner_lowest_signal(string $organization,string $gpuClass,?array $metric,
-    bool $pearlhash,array $profiles,array $prices):?array {
-    if(!$pearlhash || $gpuClass==='' || $metric===null)return null;
+    bool $pearlhash,array $profiles,array $prices):array {
+    $pending=[
+      'level'=>'neutral','label'=>'Aprendiendo referencia Lowest',
+      'floor'=>null,'margin'=>null,'kind'=>'lowest_learning'
+    ];
+    if(!$pearlhash)return array_replace($pending,['label'=>'PRL sin verificar']);
+    if($metric===null)return array_replace($pending,[
+        'level'=>'unknown','label'=>'Sin medición individual reciente'
+    ]);
+    if($gpuClass==='')return array_replace($pending,['label'=>'Clase de GPU sin identificar']);
+    $hash=$metric['hashrate_ths']??null;
+    if(!is_numeric($hash)||!is_finite((float)$hash)||(float)$hash<0)
+        return array_replace($pending,['level'=>'unknown','label'=>'Medición inválida']);
     $key=$organization."\0".$gpuClass;
     $reference=$profiles[$key]??null;
+    if($reference===null)return array_replace($pending,[
+        'label'=>'Aprendiendo · faltan mediciones verificadas'
+    ]);
     $price=$prices[$key]??null;
-    $hash=$metric['hashrate_ths']??null;
-    if($reference===null||$price===null||!is_numeric($hash)
-        ||!is_finite((float)$hash)|| (float)$hash<0)return null;
+    if($price===null)return array_replace($pending,[
+        'label'=>'Sin tarifa oficial Lowest vigente','samples'=>$reference['samples']
+    ]);
     $floor=$reference['median_efficiency']*$price*0.75;
     $watch=$reference['median_efficiency']*$price*0.90;
     $level=(float)$hash<$floor?'red':((float)$hash<$watch?'yellow':'green');
