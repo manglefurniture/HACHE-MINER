@@ -30,7 +30,7 @@ function miner_history_empty_bucket(string $model,string $priority=''):array {
         'cost_usd'=>0.0,'cost_intervals'=>0,'hash_total'=>0.0,
         'hash_count'=>0,'accepted'=>0,'accepted_intervals'=>0,'resets'=>0];
 }
-function miner_history_add(array &$records,string $model,string $priority,string $metric,float $quantity):void {
+function miner_history_add(array &$records,string $model,string $priority,string $metric,int|float $quantity):void {
     if(!isset($records[$model]))$records[$model]=miner_history_empty_bucket($model);
     if(!isset($records[$model]['priorities'][$priority]))
         $records[$model]['priorities'][$priority]=miner_history_empty_bucket($model,$priority);
