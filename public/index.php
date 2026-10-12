@@ -711,7 +711,7 @@ foreach($monitorData['groups'] as $group) {
 <?php elseif($page==='history'): ?>
 <?php require __DIR__.'/../app/history-summary-view.php'; ?>
 <section class="card">
-<details><summary><strong>Diagnóstico técnico de shares · últimas 30 horas</strong></summary>
+<details><summary><strong>Aprendizaje de shares por GPU · diagnóstico técnico (30 horas)</strong></summary>
 <?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
 <p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
 <?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
