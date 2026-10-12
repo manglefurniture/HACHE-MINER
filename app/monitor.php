@@ -342,7 +342,21 @@ function miner_monitor_producing_nodes(array $group, ?int $now=null): array {
  * Stale nodes, disabled projects, allocations and missing rates do not become
  * zero-dollar observations. No machine model-to-price guessing.
  */
-function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rates,?int $now=null):array {
+/** Display labels come from authenticated Salad class names; class IDs remain price keys. */
+function miner_monitor_gpu_class_labels(PDO $db):array {
+    if(!miner_gpu_names_ready($db))return [];
+    $labels=[];
+    foreach($db->query('SELECT organization,gpu_class,name FROM salad_gpu_class_names')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $name=trim((string)$row['name']);
+        if($name!=='')$labels[(string)$row['organization']."\\0".(string)$row['gpu_class']]=$name;
+    }
+    return $labels;
+}
+function miner_monitor_gpu_display_name(string $org,string $class,array $labels):string {
+    if($class==='')return 'GPU sin identificar';
+    return $labels[$org."\\0".$class]??'Nombre de GPU no disponible';
+}
+function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rates,?int $now=null,array $gpuNames=[]):array {
     $now=$now??time();
     $enabled=[];
     foreach($targets as $t)if((int)($t['enabled']??0)===1)
@@ -383,7 +397,9 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
                 $unpriced++;$orgs[$org]['unpriced']++;
                 $unknownKey=$org."\\0".$class."\\0".$priority;
                 if(!isset($missingDetails[$unknownKey]))$missingDetails[$unknownKey]=[
-                    'organization'=>$org,'gpu_class'=>$class,'priority'=>$priority,'count'=>0
+                    'organization'=>$org,'gpu_class'=>$class,
+                    'gpu_name'=>miner_monitor_gpu_display_name($org,$class,$gpuNames),
+                    'priority'=>$priority,'count'=>0
                 ];
                 $missingDetails[$unknownKey]['count']++;
                 continue;
@@ -391,8 +407,9 @@ function miner_monitor_live_hourly_cost(array $groups,array $targets,array $rate
             $priced++;$orgs[$org]['priced']++;$usd+=$rate;$orgs[$org]['usd_per_hour']+=$rate;
             $type=$org."\\0".$class."\\0".$priority;
             if(!isset($details[$type]))$details[$type]=[
-                'organization'=>$org,'gpu_class'=>$class,'priority'=>$priority,
-                'count'=>0,'unit_usd_per_hour'=>$rate,'subtotal_usd_per_hour'=>0.0
+                'organization'=>$org,'gpu_class'=>$class,
+                'gpu_name'=>miner_monitor_gpu_display_name($org,$class,$gpuNames),
+                'priority'=>$priority,'count'=>0,'unit_usd_per_hour'=>$rate,'subtotal_usd_per_hour'=>0.0
             ];
             $details[$type]['count']++;
             $details[$type]['subtotal_usd_per_hour']+=$rate;
@@ -570,7 +587,8 @@ function miner_monitor_inventory(): array {
     unset($group);
     // Rates are catalog entries confirmed by the administrator, not invoices.
     $rates=miner_salad_current_prices($db);
+    $gpuNames=miner_monitor_gpu_class_labels($db);
     return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
         'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now),
-        'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now)];
+        'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now,$gpuNames)];
 }

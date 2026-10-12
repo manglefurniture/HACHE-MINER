@@ -343,10 +343,10 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <p class="muted">Tarifas confirmadas por organización, clase de GPU y prioridad × instancias listas con lectura de estado hace menos de 10 minutos. <strong>Estimación horaria, no consumo facturado</strong>. Las GPU en asignación y sin tarifa conocida no están incluidas.</p>
 <?php if($liveCost['details']): ?>
 <div class="tablewrap mobile-stack"><table>
-<thead><tr><th>Organización</th><th>GPU Salad</th><th>Prioridad</th><th>Listas</th><th>USD/h unidad</th><th>USD/h subtotal</th></tr></thead><tbody>
+<thead><tr><th>Organización</th><th>GPU</th><th>Prioridad</th><th>Listas</th><th>USD/h unidad</th><th>USD/h subtotal</th></tr></thead><tbody>
 <?php foreach($liveCost['details'] as $d): ?>
 <tr><td data-label="Organización"><?= miner_h(strtoupper($d['organization'])) ?></td>
-<td data-label="Clase"><?= miner_h($d['gpu_class']) ?></td>
+<td data-label="GPU"><?= miner_h($d['gpu_name']) ?></td>
 <td data-label="Prioridad"><?= miner_h($d['priority']) ?></td>
 <td data-label="GPU listas"><?= (int)$d['count'] ?></td>
 <td data-label="USD/h unidad">$<?= miner_h(number_format($d['unit_usd_per_hour'],4,'.',',')) ?></td>
@@ -361,10 +361,10 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php endforeach; ?>
 <?php if($liveCost['missing_details']): ?>
 <p class="muted"><strong>GPU sin tarifa confirmada (no incluidas en el total):</strong></p>
-<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Clase Salad</th><th>Prioridad</th><th>GPU listas</th></tr></thead><tbody>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>GPU</th><th>Prioridad</th><th>GPU listas</th></tr></thead><tbody>
 <?php foreach($liveCost['missing_details'] as $d): ?>
 <tr><td data-label="Organización"><?= miner_h(strtoupper($d['organization'])) ?></td>
-<td data-label="Clase"><?= miner_h($d['gpu_class']!==''?$d['gpu_class']:'Sin clase disponible') ?></td>
+<td data-label="GPU"><?= miner_h($d['gpu_name']) ?></td>
 <td data-label="Prioridad"><?= miner_h($d['priority']) ?></td>
 <td data-label="GPU listas"><?= (int)$d['count'] ?></td></tr>
 <?php endforeach; ?></tbody></table></div>
