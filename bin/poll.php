@@ -204,10 +204,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
                 $metric=$metrics[$id]??null;
-                $gpuClass=$g['gpu_class'];
-                if($gpuClass===null && $metric!==null) {
-                    $gpuClass=miner_gpu_class_for_model($g['gpu_classes'],(string)($metric['gpu']??''),$names);
-                }
+                // An explicit per-instance miner model takes precedence even
+                // if the group allows only one class. Contradictions stay NULL.
+                $gpuClass=$metric!==null
+                    ?miner_gpu_class_for_model($g['gpu_classes'],(string)($metric['gpu']??''),$names)
+                    :$g['gpu_class'];
                 if($gpuClass===null && $metric===null && miner_salad_prices_ready(miner_db())) {
                     $gpuClass=miner_gpu_previous_running_class(miner_db(),$g['id'],$id,
                         $priority,$snapshotAt,$g['gpu_classes']);
