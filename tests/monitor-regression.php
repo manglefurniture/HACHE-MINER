@@ -373,7 +373,20 @@ monitor_assert($referenceList[0]['gpu_class']==='class-a' && $referenceList[0]['
 monitor_assert($referenceList[1]['gpu_class']==='class-b' && $referenceList[1]['samples']===28,
     'Eligible second-ranked GPU must be retained');
 monitor_assert(count(miner_lowest_profiles_from_rows($lowestRows,$lowestEvidence,1))===1,
-    'Top-N limit must be respected');
+    'An explicit Top-N override remains supported for callers');
+$manyRows=[];$manyEvidence=[];
+foreach(range(20,26) as $group) {
+    for($i=0;$i<25;$i++) {
+        $row=$lowestRows[$i]; // First 25 valid class-a/Lowest/PRL samples
+        $row['group_id']=$group;
+        $row['gpu_class_at_observation']='class-'.$group;
+        $row['gpu_model']='RTX model '.$group;
+        $manyRows[]=$row;
+        $manyEvidence[$group][]=strtotime($row['observed_at'].' UTC');
+    }
+}
+monitor_assert(count(miner_lowest_profiles_from_rows($manyRows,$manyEvidence))===7,
+    'Seven qualified Lowest GPU models must all receive references without a Top-5 cap');
 monitor_assert(!miner_lowest_evidence_near([1759000000],1760000000),
     'A prior different-algorithm session cannot qualify an observation');
 monitor_assert(miner_lowest_evidence_near([1760000000],1760000600),
@@ -389,12 +402,18 @@ $eval=function(float $ths,bool $verified=true,string $org='guanabacoa')use($refe
 monitor_assert($eval(80)['level']==='green','Healthy Lowest historical efficiency');
 monitor_assert($eval(68)['level']==='yellow','Lowest below 90 percent of median');
 monitor_assert($eval(59)['level']==='red','Lowest below 75 percent of median');
-monitor_assert($eval(80,false)===null,'Unverified live pearlhash must stay neutral');
-monitor_assert($eval(80,true,'hache')===null,'A different organization must not borrow a rule');
-monitor_assert(miner_lowest_signal('guanabacoa','class-a',['hashrate_ths'=>80],true,$references,[])===null,
-    'Missing current official rate must disable thresholds');
-monitor_assert(miner_lowest_signal('guanabacoa','class-a',null,true,$references,$rates)===null,
-    'Missing individual reading cannot be green');
+monitor_assert($eval(80,false)['level']==='neutral','Unverified PRL must have a neutral individual indicator');
+monitor_assert($eval(80,true,'hache')['level']==='neutral','A different organization must not borrow a rule');
+monitor_assert(miner_lowest_signal('guanabacoa','class-a',['hashrate_ths'=>80],true,$references,[])['level']==='neutral',
+    'Missing current official rate must disable thresholds without hiding the indicator');
+monitor_assert(miner_lowest_signal('guanabacoa','class-a',null,true,$references,$rates)['level']==='unknown',
+    'Missing individual reading cannot be green and must remain visible');
+monitor_assert(miner_lowest_signal('guanabacoa','unknown',['hashrate_ths'=>80],true,$references,$rates)['kind']==='lowest_learning',
+    'An untrained class needs its own neutral learning status');
+monitor_assert(miner_lowest_signal('guanabacoa','',['hashrate_ths'=>80],true,$references,$rates)['level']==='neutral',
+    'Unidentified GPU class cannot borrow another reference');
+monitor_assert(miner_lowest_signal('guanabacoa','class-a',['hashrate_ths'=>-1],true,$references,$rates)['level']==='unknown',
+    'Invalid individual hashrate must be unknown, never red');
 $higherPrice=miner_lowest_price_index([
   ['organization'=>'guanabacoa','gpu_class'=>'class-a','priority'=>'lowest','usd_per_hour'=>'0.120000']
 ]);
