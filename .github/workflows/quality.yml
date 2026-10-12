@@ -41,6 +41,7 @@ jobs:
           php tests/salad-credits-regression.php
           php tests/remember-regression.php
           php tests/deploy-regression.php
+          php tests/diagnostics-regression.php
       - name: Public artifact must not contain local secrets
         shell: bash
         run: |
