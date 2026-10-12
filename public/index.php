@@ -709,42 +709,9 @@ foreach($monitorData['groups'] as $group) {
 <section class="card"><h2>Cargos verificados</h2><p class="muted">Registrar solo importes facturados, no proyecciones; fechas UTC.</p>
 <form method="post"><input type="hidden" name="csrf" value="<?= $csrf ?>"><?php orgselect();field('Inicio UTC (AAAA-MM-DD HH:MM:SS)','period_start');field('Fin UTC','period_end');field('Cargo USD','amount_usd','number');field('Referencia de facturación única','source_reference'); ?><button name="action" value="charge">Registrar cargo real</button></form></section></div>
 <?php elseif($page==='history'): ?>
+<?php require __DIR__.'/../app/history-summary-view.php'; ?>
 <section class="card">
-<h2>Resumen acumulado por modelo de GPU</h2>
-<p class="muted">Una sola fila por modelo, sumando todas las organizaciones y grupos. Las horas son <strong>horas-GPU observadas</strong>: dos máquinas trabajando una hora suman dos horas. Se incluyen intervalos running de hasta siete minutos aun sin shares, con cobertura parcial cuando falta una lectura o tarifa.</p>
-<?php if(!empty($modelHistory['unavailable'])): ?>
-<p class="warn"><?= miner_h($modelHistory['reason']??'El resumen no está disponible.') ?></p>
-<?php else: ?>
-<p class="muted"><strong><?= (int)$modelHistory['scanned'] ?> observaciones procesadas</strong> · Desde <?= miner_h($modelHistory['start_utc']??'sin datos') ?> hasta <?= miner_h($modelHistory['end_utc']??'sin datos') ?> UTC.
-<?php if($modelHistory['partial']): ?><strong>Vista parcial por límite de procesamiento; no representa todo el historial.</strong><?php endif; ?></p>
-<?php if($modelHistory['rows']): ?>
-<?php
-$historyAlerts=[];
-if(empty($shareLearning['unavailable'])) {
-    foreach($shareLearning['devices']??[] as $dev) {
-        $gpu=miner_share_gpu_family((string)($dev['gpu']??''));
-        if($gpu!=='' && ($dev['signal']??'')==='watch')
-            $historyAlerts[$gpu]=($historyAlerts[$gpu]??0)+1;
-    }
-}
-?>
-<div class="tablewrap mobile-stack"><table>
-<thead><tr><th>Modelo de GPU</th><th>Sesiones</th><th>Tiempo observado</th><th>Costo estimado USD</th><th>TH/s medio</th><th>Shares aceptadas</th><th>Rechazadas</th><th>Vigilancia reciente</th></tr></thead>
-<tbody>
-<?php foreach($modelHistory['rows'] as $row): ?>
-<tr>
-<td data-label="Modelo GPU">
-<details>
-<summary><strong><?= miner_h($row['gpu']==='SIN_IDENTIFICAR'?'GPU sin identificar':$row['gpu']) ?></strong></summary>
-<p class="muted">Desglose por prioridad histórica verificada. «Sin registro» significa que esa prioridad no se puede reconstruir. Las duraciones no son facturación oficial de Salad.</p>
-<div class="tablewrap mobile-stack"><table>
-<thead><tr><th>Prioridad</th><th>Sesiones</th><th>Horas GPU</th><th>USD estimados</th><th>TH/s medio</th><th>Shares aceptadas</th><th>Cobertura sin tarifa</th></tr></thead><tbody>
-<?php foreach($row['priorities'] as $detail): ?>
-<tr>
-<td data-label="Prioridad"><?= miner_h($detail['priority']==='sin_registro'?'Sin registro':ucfirst($detail['priority'])) ?></td>
-<td data-label="Sesiones"><?= (int)$detail['sessions'] ?></td>
-<td data-label="Horas GPU"><?= miner_h(number_format($detail['observed_seconds']/3600,2,'.',',')) ?> h</td>
-<td data-label="Costo"><?= $detail['cost_intervals']>0?'
+<h2>Diagnóstico técnico de shares · últimas 30 horas</h2>
 <?php if(empty($shareLearning['unavailable']) && is_array($shareLearning['log_coverage']??null)): $lc=$shareLearning['log_coverage']; ?>
 <p class="muted"><strong>Formato de logs (2 h, solo PRL):</strong>
 <?php if(!empty($lc['unavailable'])): ?>Consulta de logs no disponible.
