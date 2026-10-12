@@ -35,6 +35,7 @@ jobs:
           php tests/monitor-regression.php
           php tests/shares-learning-regression.php
           php tests/trial-history-regression.php
+          php tests/history-summary-regression.php
           php tests/reallocation-regression.php
           php tests/interactive-auto-regression.php
           php tests/accounting-regression.php
