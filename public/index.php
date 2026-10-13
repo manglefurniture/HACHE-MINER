@@ -650,6 +650,18 @@ foreach($monitorData['groups'] as $group) {
 <td data-label="Listas 10 min"><?= (int)$t['ready'] ?></td></tr>
 <?php endforeach; ?></tbody></table></div>
 <p class="muted">«Observadas» son instancias únicas vistas en 10 minutos; «listas» cumplen running + ready + started. Ninguno de estos estados acredita shares aceptados ni hashrate de PRL. «Tarifas oficiales» usa exclusivamente el catálogo autenticado ya almacenado: si falta, vence o el último refresco fue parcial, no se sustituye por USD 0. «Último error» no implica que el ciclo actual haya fallado.</p></section>
+<section class="card"><h2>Diagnóstico temporal · identidad de instancias Salad</h2>
+<p class="muted">Cada ciclo compara los ID de las instancias actuales y los ID de los logs recibidos. No hace llamadas adicionales a Salad, no muestra identificadores ni claves y no modifica las reglas de minería. Conteos por grupo: n=instancias, ready=listas, gpu=filas GPU, mapped=filas vinculadas, unknown=ID sin coincidencia, noid=sin identificación, old=antiguas, ids=instancias distintas vinculadas, ths=listas medidas, missing=listas sin TH/s, pages=páginas consultadas, partial=cobertura incompleta, apierr=fallo de logs.</p>
+<?php if(empty($collectorDiag['idmap'])): ?><p class="muted">Aún no hay grupos recientes para diagnosticar.</p><?php else: ?>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Último ciclo UTC</th><th>Estado</th><th>Comparación de ID y TH/s</th></tr></thead><tbody>
+<?php foreach($collectorDiag['idmap'] as $d): ?><tr>
+<td data-label="Organización"><?= miner_h(strtoupper((string)$d['organization'])) ?></td>
+<td data-label="Grupo"><?= miner_h((string)$d['group_name']) ?></td>
+<td data-label="Último ciclo UTC"><?= miner_h((string)($d['observed_at']??'Sin diagnóstico')) ?></td>
+<td data-label="Estado"><?= miner_h((string)$d['status']) ?></td>
+<td data-label="Comparación"><?= miner_h((string)$d['detail']) ?></td>
+</tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
+</section>
 <section class="card"><h2>Advertencias recientes (24 h)</h2>
 <?php if(!$collectorDiag['warnings']): ?><p class="muted">Sin advertencias de logs registradas durante las últimas 24 horas. No implica ausencia de fallos fuera de la cobertura.</p><?php else: ?>
 <div class="tablewrap mobile-stack"><table><thead><tr><th>UTC</th><th>Organización</th><th>Grupo</th><th>Mensaje depurado</th></tr></thead><tbody>

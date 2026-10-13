@@ -8,6 +8,7 @@ require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 require_once dirname(__DIR__).'/app/salad-gpu-identity.php';
 require_once dirname(__DIR__).'/app/salad-log-coverage.php';
+require_once dirname(__DIR__).'/app/salad-instance-id-diagnostic.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -210,7 +211,7 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             // The log response may identify multiple different instances.
             // Only attribute a hashrate to a matching instance or a provably
             // unique running node; never divide a group hashrate across replicas.
-            $logs=[];$logsError=null;
+            $logs=[];$logsError=null;$coverage=null;
             $stage='logs';
             try {
                 $coverage=miner_logs($org,$project,$g['name'],$key);
@@ -227,6 +228,16 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 }
             } catch(Throwable $e) { $logsError=$e; }
             $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
+            // Temporary observation only: both Salad endpoints have already
+            // been fetched. A diagnostic failure must not affect mining data.
+            try {
+                $idmap=miner_idmap_diagnostic($nodes,$logs,$coverage);
+                miner_run_record('salad-idmap:'.$org.'/'.$project.'/'.$g['name'],
+                    $idmap['status'],$idmap['detail']);
+            } catch(Throwable $diagnosticError) {
+                error_log('[hache-miner] optional idmap diagnostics unavailable');
+            }
+
             // Verified hardware identity can arrive with 0 H/s; it is never
             // fabricated into hashrate or accepted shares.
             $gpuModels=miner_monitor_instance_log_gpu_models($logs,$nodes);
