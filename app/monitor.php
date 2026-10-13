@@ -106,7 +106,7 @@ function miner_monitor_instance_log_gpu_models(array $logs,array $nodes,?int $no
         (string)($b['time']??$b['timestamp']??''),
         (string)($a['time']??$a['timestamp']??'')));
     $models=[];
-    foreach(array_slice($logs,0,300) as $item) {
+    foreach(array_slice($logs,0,1000) as $item) {
         if(!is_array($item))continue;
         $time=strtotime((string)($item['time']??$item['timestamp']??''));
         if($time===false || $time>$now+120 || $now-$time>540)continue;
@@ -243,7 +243,7 @@ function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=n
         (string)($b['time']??$b['timestamp']??''),
         (string)($a['time']??$a['timestamp']??'')));
     $found=[];
-    foreach(array_slice($logs,0,300) as $item) {
+    foreach(array_slice($logs,0,1000) as $item) {
         if(!is_array($item))continue;
         $time=strtotime((string)($item['time']??$item['timestamp']??''));
         if($time===false || $time>$now+120 || $now-$time>540)continue;
