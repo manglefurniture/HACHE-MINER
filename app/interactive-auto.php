@@ -66,7 +66,11 @@ function miner_auto_candidates(int $now): array {
     $latest=$db->prepare("SELECT instance_id,MAX(observed_at) last_seen FROM miner_observations
       WHERE group_id=? AND observed_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       GROUP BY instance_id LIMIT 20");
-    $samples=$db->prepare("SELECT observed_at,state,ready,started,hashrate_ths,gpu_model,priority_at_observation
+    // Optional schema 006 is not guaranteed on older deployments. Its absence
+    // must not interrupt the existing Low protection; Medium fails closed.
+    $prioritySql=miner_salad_prices_ready($db)
+        ? 'priority_at_observation' : 'NULL AS priority_at_observation';
+    $samples=$db->prepare("SELECT observed_at,state,ready,started,hashrate_ths,gpu_model,$prioritySql
        FROM miner_observations WHERE group_id=? AND instance_id=?
        ORDER BY observed_at DESC,id DESC LIMIT 3");
     $manual=$db->prepare("SELECT 1 FROM audit_events WHERE
