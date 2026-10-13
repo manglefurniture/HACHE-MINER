@@ -10,9 +10,11 @@ function miner_log_sync_source_key(string $source):string {
 
 /** Compare Salad RFC3339 Nano UTC cursor values without discarding nanoseconds. */
 function miner_log_cursor_position(string $time):?array {
-    if(!preg_match('/^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d{1,9}))?Z$/D',
+    // RFC3339 permits Z or explicit UTC offsets. Salad can emit either form.
+    // Preserve nanoseconds for paging, but normalize the instant to UTC.
+    if(!preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/D',
         $time,$m))return null;
-    $seconds=strtotime($m[1].'Z');
+    $seconds=strtotime($m[1].$m[3]);
     if($seconds===false)return null;
     $nanos=(int)str_pad($m[2]??'',9,'0');
     return [$seconds,$nanos];
