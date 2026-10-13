@@ -40,6 +40,16 @@ auto_check(miner_auto_prl_metric([$medium[0],$medium[1],$mediumRow('2026-10-09 2
 auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'High priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'lowest')===null,'Lowest priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'low')===null,'Existing Low rule must remain at 125 TH/s');
+$lowTagged=[
+ $mediumRow('2026-10-09 21:09:00',125.0,'low'),
+ $mediumRow('2026-10-09 21:04:00',124.7,'low'),
+ $mediumRow('2026-10-09 20:59:00',124.3,'low')
+];
+auto_check(miner_auto_prl_metric($lowTagged,$now,'low')!==null,'Global Low 125 TH/s must qualify after consecutive samples');
+auto_check(miner_auto_prl_metric([$lowTagged[0],$medium[1],$lowTagged[2]],$now,'low')===null,
+    'Low must ignore historical samples recorded under Medium');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',125.01,'low'),$lowTagged[1],$lowTagged[2]],$now,'low')===null,
+    'Low cutoff must remain inclusive at 125');
 auto_check(miner_auto_low_prl_metric([$samples[0],$row('2026-10-09 21:04:00',156),$samples[2]],$now)===null,'Recovered GPU must not trigger');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:59:00',52.0,'RTX 5080')],$now)===null,'Different GPU model must be excluded');
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1],$row('2026-10-09 20:59:00',52.0,'RTX 4070 Ti SUPER','allocating')],$now)===null,'Allocating not eligible');
@@ -55,15 +65,15 @@ auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52
 auto_check(miner_monitor_profit_signal('quantus-trial','medium',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 4070 Ti SUPER'],true)['level']==='neutral','Low economics must not be applied to medium');
 $autoSource=file_get_contents(dirname(__DIR__).'/app/interactive-auto.php');
 auto_check(miner_auto_policy_group('interactive','low'),'Existing INTERACTIVE Low remains enabled');
-auto_check(!miner_auto_policy_group('hache','low'),'Legacy HACHE Low must not be duplicated');
-auto_check(!miner_auto_policy_group('guanabacoa','low'),'Other Low groups must not gain new automation');
 foreach(['interactive','hache','guanabacoa','other-registered-organization'] as $org) {
+    auto_check(miner_auto_policy_group($org,'low'),'Low must apply across organizations: '.$org);
     auto_check(miner_auto_policy_group($org,'medium'),'Medium must apply across organizations: '.$org);
 }
+auto_check(!miner_auto_policy_group('','low'),'Missing organization is never a valid target');
 auto_check(!miner_auto_policy_group('hache','lowest') && !miner_auto_policy_group('hache','high'),'No Lowest or High action');
 auto_check(miner_auto_prl_metric(array_map(static fn($v)=>array_replace($v,['priority_at_observation'=>null]),$medium),$now,'medium')===null,
     'Missing migration 006 priority must never trigger Medium');
-auto_check(str_contains($autoSource,"g.priority='medium' OR (g.priority='low' AND g.organization='interactive')"),'Candidate query must include all Medium plus only INTERACTIVE Low');
+auto_check(str_contains($autoSource,"g.priority IN ('low','medium')"),'Both Low and Medium must be global');
 auto_check(str_contains($autoSource,"'NULL AS priority_at_observation'"),'Missing optional migration must not break legacy Low query');
 auto_check(!str_contains($autoSource,"\$liveTarget['organization']!=='interactive'"),'Live cross-organization Medium must not be rejected');
 
