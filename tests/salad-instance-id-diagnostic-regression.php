@@ -45,6 +45,15 @@ idmap_assert($healthy['status']==='ok'
     && $healthy['counts']['ready']===2
     && $healthy['counts']['measured']===2
     && $healthy['counts']['missing']===0,'Complete mapping must be healthy');
+// Single-node attribution is valid for production speed, but is NOT an
+// explicit log ID match: diagnostics must classify it as noid.
+$single=miner_idmap_diagnostic([$nodes[0]],[$anonymous],$coverage,$now);
+idmap_assert($single['counts']['measured']===1
+    && $single['counts']['matched_rows']===0
+    && $single['counts']['matched_ids']===0
+    && $single['counts']['anonymous_rows']===1
+    && $single['status']==='partial',
+    'Singleton fallback hash must not be misreported as matching Salad ID');
 $error=miner_idmap_diagnostic($nodes,[],null,$now);
 idmap_assert($error['status']==='partial'
     && $error['counts']['api_error']===1
