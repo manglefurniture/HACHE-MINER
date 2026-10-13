@@ -50,6 +50,10 @@ function miner_gpu_class_for_model(array $allowedIds,string $logModel,array $cat
  * The group's gpu_classes array is an allowed list, not an instance identity.
  * Current Salad responses may omit this field; that must remain unknown.
  */
+function miner_gpu_instance_class_claimed(array $instance):bool {
+    return isset($instance['gpu_class_id']) || isset($instance['gpu_class']);
+}
+
 function miner_gpu_class_from_instance(array $instance,array $allowedIds): ?string {
     $found=[];
     foreach(['gpu_class_id','gpu_class'] as $key) {
