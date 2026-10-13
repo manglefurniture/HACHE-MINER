@@ -61,7 +61,10 @@ foreach(['interactive','hache','guanabacoa','other-registered-organization'] as 
     auto_check(miner_auto_policy_group($org,'medium'),'Medium must apply across organizations: '.$org);
 }
 auto_check(!miner_auto_policy_group('hache','lowest') && !miner_auto_policy_group('hache','high'),'No Lowest or High action');
+auto_check(miner_auto_prl_metric(array_map(static fn($v)=>array_replace($v,['priority_at_observation'=>null]),$medium),$now,'medium')===null,
+    'Missing migration 006 priority must never trigger Medium');
 auto_check(str_contains($autoSource,"g.priority='medium' OR (g.priority='low' AND g.organization='interactive')"),'Candidate query must include all Medium plus only INTERACTIVE Low');
+auto_check(str_contains($autoSource,"'NULL AS priority_at_observation'"),'Missing optional migration must not break legacy Low query');
 auto_check(!str_contains($autoSource,"\$liveTarget['organization']!=='interactive'"),'Live cross-organization Medium must not be rejected');
 
 auto_check(str_contains($autoSource,"miner_salad_api_key_for_org((string)\$liveTarget['organization'])"),
