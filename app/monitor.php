@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
 require_once __DIR__.'/salad-gpu-prices.php';
+require_once __DIR__.'/salad-log-coverage.php';
 require_once __DIR__.'/lowest-rules.php';
 
 /** Separar estados de asignación de evidencia de minería. */
@@ -102,9 +103,7 @@ function miner_monitor_log_gpu_identity(string $line): ?string {
  */
 function miner_monitor_instance_log_gpu_models(array $logs,array $nodes,?int $now=null): array {
     $now=$now??time();
-    usort($logs,static fn($a,$b)=>strcmp(
-        (string)($b['time']??$b['timestamp']??''),
-        (string)($a['time']??$a['timestamp']??'')));
+    usort($logs,'miner_log_compare_newest');
     $models=[];
     foreach(array_slice($logs,0,1000) as $item) {
         if(!is_array($item))continue;
@@ -239,9 +238,7 @@ function miner_monitor_tagged_log_summary(array $item,array $nodes): string {
 /** Return newest provably attributable GPU metric for each instance. */
 function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=null): array {
     $now=$now??time();
-    usort($logs,static fn($a,$b)=>strcmp(
-        (string)($b['time']??$b['timestamp']??''),
-        (string)($a['time']??$a['timestamp']??'')));
+    usort($logs,'miner_log_compare_newest');
     $found=[];
     foreach(array_slice($logs,0,1000) as $item) {
         if(!is_array($item))continue;
