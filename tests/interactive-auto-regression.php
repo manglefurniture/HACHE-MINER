@@ -54,8 +54,17 @@ auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52
 auto_check(miner_monitor_profit_signal('quantus-trial','low',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 5080'],true)['level']==='neutral','PRL threshold requires independently confirmed GPU class');
 auto_check(miner_monitor_profit_signal('quantus-trial','medium',['hashrate_ths'=>52.06,'gpu_model'=>'RTX 4070 Ti SUPER'],true)['level']==='neutral','Low economics must not be applied to medium');
 $autoSource=file_get_contents(dirname(__DIR__).'/app/interactive-auto.php');
-auto_check(str_contains($autoSource,"g.priority IN ('low','medium')"),'Candidate query must include Low and Medium only');
+auto_check(miner_auto_policy_group('interactive','low'),'Existing INTERACTIVE Low remains enabled');
+auto_check(!miner_auto_policy_group('hache','low'),'Legacy HACHE Low must not be duplicated');
+auto_check(!miner_auto_policy_group('guanabacoa','low'),'Other Low groups must not gain new automation');
+foreach(['interactive','hache','guanabacoa','other-registered-organization'] as $org) {
+    auto_check(miner_auto_policy_group($org,'medium'),'Medium must apply across organizations: '.$org);
+}
+auto_check(!miner_auto_policy_group('hache','lowest') && !miner_auto_policy_group('hache','high'),'No Lowest or High action');
+auto_check(str_contains($autoSource,"g.priority='medium' OR (g.priority='low' AND g.organization='interactive')"),'Candidate query must include all Medium plus only INTERACTIVE Low');
+auto_check(!str_contains($autoSource,"\$liveTarget['organization']!=='interactive'"),'Live cross-organization Medium must not be rejected');
+
 auto_check(str_contains($autoSource,"miner_salad_api_key_for_org((string)\$liveTarget['organization'])"),
-    'Automatic live verification must honor the configured INTERACTIVE organization key');
+    'Automatic live verification must honor each registered organization key');
 
 echo "PASS interactive-auto-regression\n";
