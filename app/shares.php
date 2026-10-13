@@ -61,7 +61,7 @@ function miner_share_instance_counters(array $logs,array $nodes,?int $now=null):
         $started=strtotime((string)($node['update_time']??''));
         if ($id!=='' && $started!==false)$startById[$id]=$started;
     }
-    foreach (array_slice($logs,0,300) as $item) {
+    foreach (array_slice($logs,0,1000) as $item) {
         if (!is_array($item))continue;
         $ts=strtotime((string)($item['time']??$item['timestamp']??''));
         if ($ts===false || $ts>$now+120 || $now-$ts>540)continue;
