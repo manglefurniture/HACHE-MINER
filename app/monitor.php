@@ -78,6 +78,50 @@ function miner_monitor_log_metric(string $line): ?array {
        ||($temp!==null && ($temp<0||$temp>150)))return null;
     return ['gpu'=>$gpu,'hashrate_ths'=>$hash,'watts'=>$watts,'temp_c'=>$temp,'fan'=>$fan];
 }
+/**
+ * GPU identity may be present in a device table row even when the miner reports
+ * 0 H/s. This is NOT a performance measurement or proof of active mining.
+ */
+function miner_monitor_log_gpu_identity(string $line): ?string {
+    $metric=miner_monitor_log_metric($line);
+    if($metric!==null)return $metric['gpu'];
+    $clean=miner_scrub_log($line);
+    // Only indexed SRBMiner GPU rows, never an aggregate / pool speed.
+    $pattern='/^(?:\\[[^\\]\\r\\n]{1,90}\\]\\s*)?(?:GPU\\s*#?\\d{1,2}\\s+)?#\\d{1,2}\\s+'
+        .'(?<gpu>[^\\r\\n]{3,120}?)\\s+0(?:\\.0+)?\\s+(?:H|kH|MH|GH)\\/s\\b/i';
+    if(!preg_match($pattern,$clean,$m))return null;
+    $gpu=trim((string)$m['gpu']," \\t:-|[]");
+    if($gpu==='' || strlen($gpu)>120 || !preg_match('/[a-zA-Z]/',$gpu)
+       || preg_match('/\\b(?:share|shares|accepted|rejected|pool|total|average|hashrate|worker|speed|reported|overall|min|mins|minute|minutes|avg)\\b/i',$gpu))return null;
+    return $gpu;
+}
+
+/**
+ * Resolve GPU model without depending on a positive TH/s figure. Only accept
+ * logs provably tied to ONE current instance; conflicting models fail closed.
+ */
+function miner_monitor_instance_log_gpu_models(array $logs,array $nodes,?int $now=null): array {
+    $now=$now??time();
+    usort($logs,static fn($a,$b)=>strcmp(
+        (string)($b['time']??$b['timestamp']??''),
+        (string)($a['time']??$a['timestamp']??'')));
+    $models=[];
+    foreach(array_slice($logs,0,300) as $item) {
+        if(!is_array($item))continue;
+        $time=strtotime((string)($item['time']??$item['timestamp']??''));
+        if($time===false || $time>$now+120 || $now-$time>540)continue;
+        $gpu=miner_monitor_log_gpu_identity((string)($item['text_log']??$item['message']??''));
+        if($gpu===null)continue;
+        $id=miner_monitor_log_instance($item,$nodes);
+        if($id===null)continue;
+        if(!array_key_exists($id,$models)){$models[$id]=$gpu;continue;}
+        if($models[$id]===null)continue;
+        if(miner_gpu_model_key($models[$id])!==miner_gpu_model_key($gpu))
+            $models[$id]=null;
+    }
+    return $models;
+}
+
 function miner_monitor_average_15m(string $line): ?float {
     $clean=miner_scrub_log($line);
     if (!preg_match('/15\s*min\s+(\d+(?:\.\d+)?)\s+TH\/s/i',$clean,$m)) return null;
@@ -182,7 +226,7 @@ function miner_monitor_tagged_log_summary(array $item,array $nodes): string {
     $safe=miner_scrub_log($raw);
     // A worker could print a tag; discard any text resembling our marker.
     $safe=preg_replace('/\\s*\\[MONITOR_GPU_(?:ATTRIBUTED|UNATTRIBUTED|UNKNOWN)\\]/i','',$safe)??'';
-    if(miner_monitor_log_metric($raw)===null)return $safe;
+    if(miner_monitor_log_gpu_identity($raw)===null)return $safe;
     $matched=miner_monitor_log_instance($item,$nodes);
     // UNKNOWN covers explicit but mismatched/conflicting labels or worker IDs.
     // Only the absence of identity hints is genuinely unattributed.
