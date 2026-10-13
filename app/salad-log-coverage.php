@@ -20,6 +20,20 @@ function miner_log_cursor_position(string $time):?array {
     return [$seconds,$nanos];
 }
 
+/** Sort newest-first by actual UTC instant, never by RFC3339 text spelling. */
+function miner_log_compare_newest(mixed $a,mixed $b):int {
+    $at=is_array($a)?(string)($a['time']??$a['timestamp']??''):'';
+    $bt=is_array($b)?(string)($b['time']??$b['timestamp']??''):'';
+    $ap=miner_log_cursor_position($at);
+    $bp=miner_log_cursor_position($bt);
+    if($ap!==null && $bp!==null) {
+        return ($bp[0]<=>$ap[0]) ?: ($bp[1]<=>$ap[1]);
+    }
+    if($ap!==null)return -1;
+    if($bp!==null)return 1;
+    return strcmp($bt,$at);
+}
+
 /**
  * Salad logs have a maximum of 100 events per response, a page_min_time
  * cursor and no numbered pages. Advance backwards using Salad's FULL
@@ -90,9 +104,7 @@ function miner_log_collect_windows(callable $fetch,int $startUtc,int $endUtc,
     if(microtime(true)>=$deadline && $saturated>0)$partial=true;
 
     $result=array_values($unique);
-    usort($result,static fn($a,$b)=>strcmp(
-        (string)($b['time']??$b['timestamp']??''),
-        (string)($a['time']??$a['timestamp']??'')));
+    usort($result,'miner_log_compare_newest');
     return ['items'=>$result,'partial'=>$partial,'requests'=>$requests,
         'saturated_windows'=>$saturated,'unique'=>count($result)];
 }
