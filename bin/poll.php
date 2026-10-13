@@ -216,7 +216,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                     ?miner_gpu_class_for_model($g['gpu_classes'],(string)$model,$names)
                     :null;
                 $explicitClass=miner_gpu_class_from_instance($node,$g['gpu_classes']);
-                $conflict=$hasGpuEvidence && $gpuModels[$id]===null;
+                // Non-null explicit API fields are claims. If unpermitted or
+                // contradictory, do not fall back to a group or older class.
+                $explicitClaim=isset($node['gpu_class_id']) || isset($node['gpu_class']);
+                $conflict=($hasGpuEvidence && $gpuModels[$id]===null)
+                    || ($explicitClaim && $explicitClass===null);
                 if($conflict || ($model!==null && ($modelClass===null
                     || ($explicitClass!==null && $explicitClass!==$modelClass)))) {
                     $gpuClass=null;
