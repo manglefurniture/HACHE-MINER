@@ -23,26 +23,31 @@ for($i=0;$i<260;$i++){
         'receive_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+$i)
     ];
 }
-// The inclusive midpoint appears in both subwindows; it must be counted once.
+// The page_min_time boundary is inclusive on both pages; it must be counted once.
 $events[]=['time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+210),
     'text_log'=>'#0 RTX 4070 Ti SUPER 167.50 TH/s 235W 0.68 50% 63C',
     'resource'=>['labels'=>['instance_id'=>'gpu-a']]];
 $events[]=['time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+210),
     'text_log'=>'#0 RTX 4070 Ti SUPER 159.50 TH/s 235W 0.68 50% 63C',
     'resource'=>['labels'=>['instance_id'=>'gpu-b']]];
-$fetch=function(int $from,int $to) use($events):array {
-    $subset=array_values(array_filter($events,static function(array $item) use($from,$to) {
-        $t=strtotime($item['time']);
-        return $t>=$from && $t<=$to;
+$fetch=function(int $from,string $to,float $remainingSeconds) use($events):array {
+    coverage_assert($remainingSeconds>0 && $remainingSeconds<=14.0,
+        'Every request must receive remaining wall-clock budget');
+    $end=miner_log_cursor_position($to);
+    $subset=array_values(array_filter($events,static function(array $item) use($from,$end) {
+        $t=miner_log_cursor_position($item['time']);
+        return $t!==null && $t[0]>=$from
+            && ($t[0]<$end[0] || ($t[0]===$end[0] && $t[1]<=$end[1]));
     }));
     usort($subset,static fn($a,$b)=>strcmp($b['time'],$a['time']));
-    return ['items'=>array_slice($subset,0,100)];
+    $page=array_slice($subset,0,100);
+    return ['items'=>$page,'page_min_time'=>$page===[]?null:$page[count($page)-1]['time']];
 };
 $coverage=miner_log_collect_windows($fetch,$start,$start+420,12);
 coverage_assert(!$coverage['partial'],'Seven-minute collection should be complete with enough bounded requests');
 coverage_assert($coverage['unique']===262,'Overlapping windows must preserve unique per-instance events');
 coverage_assert($coverage['requests']>1 && $coverage['requests']<=12,
-    'Saturated 100-item Salad pages must be divided');
+    'Saturated 100-item Salad pages must advance using a timestamp cursor');
 $metrics=miner_monitor_instance_log_metrics($coverage['items'],$nodes,$start+420);
 coverage_assert(count($metrics)===2,'Per-instance attributed TH/s must survive bounded coverage');
 coverage_assert($metrics['gpu-a']['hashrate_ths']===161.25 || $metrics['gpu-a']['hashrate_ths']===167.5,
@@ -60,7 +65,7 @@ $twins=[
      'resource'=>['labels'=>['instance_id'=>'gpu-b']]]
 ];
 $twinsCoverage=miner_log_collect_windows(
-    static fn(int $from,int $to)=>['items'=>$twins],
+    static fn(int $from,string $to,float $remaining)=>['items'=>$twins],
     $start,$start+420,2);
 coverage_assert($twinsCoverage['unique']===2,
     'Identical GPU lines with distinct instance labels must not be deduplicated together');
@@ -73,22 +78,59 @@ for($i=0;$i<175;$i++)$dense[]=[
     'text_log'=>'worker log '.$i
 ];
 $limited=miner_log_collect_windows(
-    static function(int $from,int $to) use($dense):array {
-        return ['items'=>array_slice(array_values(array_filter($dense,
-            static fn($r)=>strtotime($r['time'])>=$from && strtotime($r['time'])<=$to)),0,100)];
+    static function(int $from,string $to,float $remaining) use($dense):array {
+        $page=array_slice(array_values(array_filter($dense,
+            static fn($r)=>strtotime($r['time'])>=$from && strtotime($r['time'])<=strtotime($to))),0,100);
+        return ['items'=>$page,'page_min_time'=>$page[0]['time']??null];
     },$start,$start+420,6);
 coverage_assert($limited['partial'] && $limited['requests']<=6,
     'Dense unpageable timestamps must be reported as partial within strict budget');
 
 // A later failing window cannot erase valid, already received attribution.
 $fails=0;
-$degraded=miner_log_collect_windows(function(int $from,int $to)use(&$fails,$events):array{
+$degraded=miner_log_collect_windows(function(int $from,string $to,float $remaining)use(&$fails,$events):array{
     $fails++;
     if($fails>1)throw new RuntimeException('Salad rate limited');
-    return ['items'=>array_slice($events,0,100)];
+    $first=array_reverse(array_slice($events,160,100));
+    return ['items'=>$first,'page_min_time'=>$first[count($first)-1]['time']];
 },$start,$start+420,4);
 coverage_assert($degraded['partial'] && $degraded['unique']===100,
     'Retain received evidence while marking partial collection after later API error');
+
+// Four hundred evenly spaced events must fit inside the 8-request budget
+// using true cursor pagination. Midpoint splitting used to leave older GPUs out.
+$fourHundred=[];
+for($i=0;$i<400;$i++){
+    $fourHundred[]=['time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+$i),
+        'text_log'=>'gpu event '.$i,
+        'resource'=>['labels'=>['instance_id'=>($i%2===0?'gpu-a':'gpu-b')]]];
+}
+$cursorFetch=static function(int $from,string $to,float $remaining)use($fourHundred):array{
+    $end=miner_log_cursor_position($to);
+    $rows=array_values(array_filter($fourHundred,static function(array $r)use($from,$end) {
+        $p=miner_log_cursor_position($r['time']);
+        return $p[0]>=$from && ($p[0]<$end[0] || ($p[0]===$end[0] && $p[1]<=$end[1]));
+    }));
+    usort($rows,static fn($a,$b)=>strcmp($b['time'],$a['time']));
+    $page=array_slice($rows,0,100);
+    return ['items'=>$page,'page_min_time'=>$page===[]?null:$page[count($page)-1]['time']];
+};
+$fourResult=miner_log_collect_windows($cursorFetch,$start,$start+420,8);
+coverage_assert($fourResult['unique']===400 && !$fourResult['partial']
+    && $fourResult['requests']<=6,
+    '400 rows must be paged without losing older GPU logs');
+
+coverage_assert(miner_log_cursor_position('2026-10-13T15:01:01.123456789Z')[1]===123456789,
+    'Full nanosecond timestamp precision must be preserved');
+coverage_assert(miner_log_cursor_position('2026-10-13T15:01:01.123456788Z')[1]===123456788,
+    'Adjacent nanosecond cursors must remain distinct');
+$longA='salad-logs:'.str_repeat('a',120).'group-A';
+$longB='salad-logs:'.str_repeat('a',120).'group-B';
+coverage_assert(strlen(miner_log_sync_source_key($longA))<=120
+    && miner_log_sync_source_key($longA)!==miner_log_sync_source_key($longB),
+    'Long sync source names must fit the schema without collision');
+coverage_assert(miner_log_sync_source_key('salad:hache/prl-tests')==='salad:hache/prl-tests',
+    'Normal diagnostic source names must remain unchanged');
 
 // More than the previous 300-row parser cutoff: retain an older labelled
 // instance's only metric, despite 350 newer rows from another worker.

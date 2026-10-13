@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__.'/core.php';
 require_once __DIR__.'/salad-gpu-prices.php';
+require_once __DIR__.'/salad-log-coverage.php';
 
 /**
  * Read-only health inference for one Salad target. A successful sync is not
@@ -113,9 +114,10 @@ function miner_collector_diagnostics(): array {
         $org=(string)$target['organization_slug'];
         $project=(string)$target['project_slug'];
         $enabled=(int)$target['enabled']===1;
-        $getRun->execute(['salad:'.$org.'/'.$project]);
+        $syncKey=miner_log_sync_source_key('salad:'.$org.'/'.$project);
+        $getRun->execute([$syncKey]);
         $run=$getRun->fetch(PDO::FETCH_ASSOC)?:null;
-        $getLastError->execute(['salad:'.$org.'/'.$project]);
+        $getLastError->execute([$syncKey]);
         $lastError=$getLastError->fetch(PDO::FETCH_ASSOC)?:null;
         if (!isset($rateHealthByOrganization[$org])) {
             $rateRun=null;$rateCatalog=null;

@@ -16,7 +16,7 @@ $lock=fopen($lockPath,'c');
 if(!$lock || !flock($lock,LOCK_EX|LOCK_NB)) {echo "POLL_BUSY\n";exit(0);}
 function miner_run_record(string $source,string $status,string $detail): void {
     $st=miner_db()->prepare('INSERT INTO sync_runs (source_name,observed_at,status,detail) VALUES (?,UTC_TIMESTAMP(),?,?)');
-    $st->execute([$source,$status,substr($detail,0,180)]);
+    $st->execute([miner_log_sync_source_key($source),$status,substr($detail,0,180)]);
 }
 function miner_logs(string $org,string $project,string $group,string $key): array {
     $url='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/log-entries';
@@ -25,17 +25,20 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
         .$safe($project).'" and resource.labels.container_group_name = "'.$safe($group).'"';
     $end=time();
     // Salad log collection has page_min_time/page_max_time but no cursor.
-    // A full 100-item window is split recursively (bounded by requests/time).
-    $fetch=static function(int $from,int $to) use($url,$query,$key):array {
+    // A full 100-item page advances by Salad's full-precision page_min_time.
+    $fetch=static function(int $from,string $to,float $remainingSeconds) use($url,$query,$key):array {
         $body=[
             'sort_order'=>'desc',
             'start_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$from),
-            'end_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$to),
+            'end_time'=>$to,
             'page_size'=>100,'query'=>$query
         ];
+        // Enforce remaining per-group wall-clock time in each cURL request.
+        $timeoutMs=max(200,min(6000,(int)floor($remainingSeconds*1000)));
         $ch=curl_init($url);
         curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,
-            CURLOPT_TIMEOUT=>6,CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_FOLLOWLOCATION=>false,
+            CURLOPT_TIMEOUT_MS=>$timeoutMs,CURLOPT_CONNECTTIMEOUT_MS=>min(2500,$timeoutMs),
+            CURLOPT_FOLLOWLOCATION=>false,
             CURLOPT_HTTPHEADER=>['Salad-Api-Key: '.$key,'Content-Type: application/json'],
             CURLOPT_POSTFIELDS=>json_encode($body,JSON_THROW_ON_ERROR)]);
         $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
