@@ -122,6 +122,26 @@ coverage_assert($fourResult['unique']===400 && !$fourResult['partial']
 
 coverage_assert(miner_log_cursor_position('2026-10-13T15:01:01.123456789Z')[1]===123456789,
     'Full nanosecond timestamp precision must be preserved');
+// Real Salad RFC3339 date-times can include +00:00 or numeric zone offsets.
+// The old strict Z-only parser discarded every such log, hiding all GPU TH/s.
+$utcZ=miner_log_cursor_position('2026-10-13T15:01:01.123456789Z');
+$utcOffset=miner_log_cursor_position('2026-10-13T15:01:01.123456789+00:00');
+$localOffset=miner_log_cursor_position('2026-10-13T10:01:01.123456789-05:00');
+coverage_assert($utcZ!==null && $utcZ===$utcOffset && $utcZ===$localOffset,
+    'Equivalent RFC3339 offsets must preserve UTC cursor and full nanoseconds');
+coverage_assert(miner_log_cursor_position('not-a-timestamp')===null,
+    'Malformed log timestamps are not valid cursors');
+$offsetLogs=[[
+    'time'=>'2026-10-13T15:01:01.123456789+00:00',
+    'text_log'=>'#0 RTX 4070 Ti SUPER 160.00 TH/s 235W 0.68 50% 63C',
+    'resource'=>['labels'=>['instance_id'=>'gpu-a']]
+]];
+$offsetWindow=miner_log_collect_windows(
+    static fn(int $from,string $to,float $remaining)=>['items'=>$offsetLogs],
+    $start,$start+420,2);
+coverage_assert($offsetWindow['unique']===1 && !$offsetWindow['partial'],
+    'Offset timestamps must not discard otherwise attributable miner logs');
+
 coverage_assert(miner_log_cursor_position('2026-10-13T15:01:01.123456788Z')[1]===123456788,
     'Adjacent nanosecond cursors must remain distinct');
 $longA='salad-logs:'.str_repeat('a',120).'group-A';
@@ -158,5 +178,31 @@ $deepShares=miner_share_instance_counters([...$deep,$sharesRow],$nodes,$start+42
 coverage_assert(isset($deepShares['gpu-b']) && $deepShares['gpu-b']['accepted']===7
     && !isset($deepShares['gpu-a']),
     'Deep-page cumulative shares must not be lost or attributed to other replicas');
+
+// UTC offsets must be ordered chronologically, never lexicographically.
+// An older Z timestamp sorts above the newer -05:00 spelling as text.
+$oldMetric=[
+    'time'=>'2026-10-13T15:30:00Z',
+    'text_log'=>'#0 RTX 4070 Ti SUPER 151.00 TH/s 235W 0.68 50% 63C 2535 11043 3 0 0',
+    'resource'=>['labels'=>['instance_id'=>'gpu-a']]
+];
+$newMetric=[
+    'time'=>'2026-10-13T10:31:00-05:00',
+    'text_log'=>'#0 RTX 4070 Ti SUPER 172.00 TH/s 235W 0.68 50% 63C 2535 11043 9 0 0',
+    'resource'=>['labels'=>['instance_id'=>'gpu-a']]
+];
+$mixedMetrics=[$oldMetric,$newMetric];
+usort($mixedMetrics,'miner_log_compare_newest');
+coverage_assert($mixedMetrics[0]['time']===$newMetric['time'],
+    'Newest timestamp comparator must normalize UTC before sorting');
+$actualNow=strtotime('2026-10-13T15:32:00Z');
+$latestGPU=miner_monitor_instance_log_metrics([$oldMetric,$newMetric],$nodes,$actualNow);
+coverage_assert(isset($latestGPU['gpu-a'])
+    && $latestGPU['gpu-a']['hashrate_ths']===172.0,
+    'GPU metric reader must choose newest UTC log when offsets differ');
+$latestShares=miner_share_instance_counters([$oldMetric,$newMetric],$nodes,$actualNow);
+coverage_assert(isset($latestShares['gpu-a'])
+    && $latestShares['gpu-a']['accepted']===9,
+    'Share reader must choose newest UTC log when offsets differ');
 
 echo "SALAD_LOG_COVERAGE_REGRESSION_OK\n";

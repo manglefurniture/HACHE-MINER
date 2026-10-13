@@ -52,7 +52,7 @@ function miner_share_counters(string $line): ?array
 function miner_share_instance_counters(array $logs,array $nodes,?int $now=null): array
 {
     $now??=time();
-    usort($logs,static fn($a,$b)=>strcmp((string)($b['time']??$b['timestamp']??''),(string)($a['time']??$a['timestamp']??'')));
+    usort($logs,'miner_log_compare_newest');
     $found=[];
     $startById=[];
     foreach ($nodes as $node) {

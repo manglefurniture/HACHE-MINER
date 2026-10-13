@@ -10,12 +10,28 @@ function miner_log_sync_source_key(string $source):string {
 
 /** Compare Salad RFC3339 Nano UTC cursor values without discarding nanoseconds. */
 function miner_log_cursor_position(string $time):?array {
-    if(!preg_match('/^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d{1,9}))?Z$/D',
+    // RFC3339 permits Z or explicit UTC offsets. Salad can emit either form.
+    // Preserve nanoseconds for paging, but normalize the instant to UTC.
+    if(!preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/D',
         $time,$m))return null;
-    $seconds=strtotime($m[1].'Z');
+    $seconds=strtotime($m[1].$m[3]);
     if($seconds===false)return null;
     $nanos=(int)str_pad($m[2]??'',9,'0');
     return [$seconds,$nanos];
+}
+
+/** Sort newest-first by actual UTC instant, never by RFC3339 text spelling. */
+function miner_log_compare_newest(mixed $a,mixed $b):int {
+    $at=is_array($a)?(string)($a['time']??$a['timestamp']??''):'';
+    $bt=is_array($b)?(string)($b['time']??$b['timestamp']??''):'';
+    $ap=miner_log_cursor_position($at);
+    $bp=miner_log_cursor_position($bt);
+    if($ap!==null && $bp!==null) {
+        return ($bp[0]<=>$ap[0]) ?: ($bp[1]<=>$ap[1]);
+    }
+    if($ap!==null)return -1;
+    if($bp!==null)return 1;
+    return strcmp($bt,$at);
 }
 
 /**
@@ -88,9 +104,7 @@ function miner_log_collect_windows(callable $fetch,int $startUtc,int $endUtc,
     if(microtime(true)>=$deadline && $saturated>0)$partial=true;
 
     $result=array_values($unique);
-    usort($result,static fn($a,$b)=>strcmp(
-        (string)($b['time']??$b['timestamp']??''),
-        (string)($a['time']??$a['timestamp']??'')));
+    usort($result,'miner_log_compare_newest');
     return ['items'=>$result,'partial'=>$partial,'requests'=>$requests,
         'saturated_windows'=>$saturated,'unique'=>count($result)];
 }
