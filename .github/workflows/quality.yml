@@ -29,6 +29,7 @@ jobs:
           php tests/salad-gpu-prices-regression.php
           php tests/salad-gpu-identity-regression.php
           php tests/salad-log-coverage-regression.php
+          php tests/salad-instance-id-diagnostic-regression.php
           php tests/kryptex-regression.php
           php tests/pool-observation-regression.php
           php tests/monitor-regression.php
