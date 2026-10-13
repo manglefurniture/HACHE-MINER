@@ -177,8 +177,29 @@ function miner_collector_diagnostics(): array {
             'ready'=>$ready
         ];
     }
+    // Latest temporary ID mapping report for each recently observed group.
+    // Data already stored by the poller; strictly read-only and aggregate-only.
+    $idmap=[];
+    $getIdmap=$db->prepare('SELECT observed_at,status,detail FROM sync_runs WHERE source_name=? ORDER BY observed_at DESC,id DESC LIMIT 1');
+    $recentGroups=$db->query("SELECT organization,project_name,group_name FROM group_state
+        WHERE last_seen_at>=UTC_TIMESTAMP()-INTERVAL 15 MINUTE AND state<>'not_listed'
+        ORDER BY organization,group_name LIMIT 60")->fetchAll(PDO::FETCH_ASSOC);
+    foreach($recentGroups as $group) {
+        $org=(string)$group['organization'];
+        $project=(string)$group['project_name'];
+        $name=(string)$group['group_name'];
+        $key=miner_log_sync_source_key('salad-idmap:'.$org.'/'.$project.'/'.$name);
+        $getIdmap->execute([$key]);
+        $sample=$getIdmap->fetch(PDO::FETCH_ASSOC)?:null;
+        $idmap[]=[
+            'organization'=>$org,'group_name'=>$name,
+            'observed_at'=>$sample['observed_at']??null,
+            'status'=>$sample['status']??'missing',
+            'detail'=>$sample['detail']??'Sin diagnóstico todavía'
+        ];
+    }
     $warnings=$db->query("SELECT g.organization,g.group_name,l.logged_at,l.summary FROM log_events l JOIN group_state g ON g.id=l.group_id WHERE l.severity='warning' AND l.logged_at>=UTC_TIMESTAMP()-INTERVAL 24 HOUR ORDER BY l.logged_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
     foreach($warnings as &$warning) $warning['summary']=miner_scrub_log((string)$warning['summary']);
     unset($warning);
-    return ['targets'=>$items,'warnings'=>$warnings,'summary'=>$totals];
+    return ['targets'=>$items,'warnings'=>$warnings,'summary'=>$totals,'idmap'=>$idmap];
 }
