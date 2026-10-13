@@ -90,7 +90,7 @@ function miner_monitor_log_gpu_identity(string $line): ?string {
     $pattern='/^(?:\\[[^\\]\\r\\n]{1,90}\\]\\s*)?(?:GPU\\s*#?\\d{1,2}\\s+)?#\\d{1,2}\\s+'
         .'(?<gpu>[^\\r\\n]{3,120}?)\\s+0(?:\\.0+)?\\s+(?:H|kH|MH|GH)\\/s\\b/i';
     if(!preg_match($pattern,$clean,$m))return null;
-    $gpu=trim((string)$m['gpu']," \\t:-|[]");
+    $gpu=trim((string)$m['gpu']," \t:-|[]");
     if($gpu==='' || strlen($gpu)>120 || !preg_match('/[a-zA-Z]/',$gpu)
        || preg_match('/\\b(?:share|shares|accepted|rejected|pool|total|average|hashrate|worker|speed|reported|overall|min|mins|minute|minutes|avg)\\b/i',$gpu))return null;
     return $gpu;
