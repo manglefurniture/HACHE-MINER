@@ -104,4 +104,17 @@ $deep[]=['time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+70),
 $deepMetrics=miner_monitor_instance_log_metrics($deep,$nodes,$start+420);
 coverage_assert(isset($deepMetrics['gpu-b']) && $deepMetrics['gpu-b']['hashrate_ths']===153.0,
     'Bounded log analyzer must not ignore other instances after 300 lines');
+// Deep-page share counters must also be attributed after 300 rows; do not
+// treat absent per-instance counters as accepted 0 or another GPU's shares.
+require_once __DIR__.'/../app/shares.php';
+$sharesRow=[
+    'time'=>gmdate('Y-m-d\\TH:i:s\\Z',$start+70),
+    'text_log'=>'#0 RTX 4070 Ti SUPER 153.00 TH/s 215W 0.72 50% 60C 2610 10251 7 0 0',
+    'resource'=>['labels'=>['instance_id'=>'gpu-b']]
+];
+$deepShares=miner_share_instance_counters([...$deep,$sharesRow],$nodes,$start+420);
+coverage_assert(isset($deepShares['gpu-b']) && $deepShares['gpu-b']['accepted']===7
+    && !isset($deepShares['gpu-a']),
+    'Deep-page cumulative shares must not be lost or attributed to other replicas');
+
 echo "SALAD_LOG_COVERAGE_REGRESSION_OK\n";
