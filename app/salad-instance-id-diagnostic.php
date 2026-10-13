@@ -27,14 +27,18 @@ function miner_idmap_diagnostic(array $nodes,array $logs,?array $coverage=null,?
         $gpu++;
         $at=strtotime((string)($item['time']??$item['timestamp']??''));
         if($at===false || $at>$now+120 || $now-$at>540) {$old++;continue;}
+        // An unlabeled log from a singleton group may be attributed in
+        // production, but it is NOT proof that Salad supplied its exact ID.
+        if(!miner_monitor_log_has_identity_hint($item)) {
+            $anonymous++;
+            continue;
+        }
         $id=miner_monitor_log_instance($item,$nodes);
         if($id!==null) {
             $matchedRows++;
             $matchedIds[$id]=true;
-        } elseif(miner_monitor_log_has_identity_hint($item)) {
-            $unknown++;
         } else {
-            $anonymous++;
+            $unknown++;
         }
     }
     // Use the EXACT production per-instance metric reader for the coverage
