@@ -643,6 +643,7 @@ function miner_monitor_inventory(): array {
     $gpuNames=miner_monitor_gpu_class_labels($db);
     return ['targets'=>$targets,'groups'=>$groups,'stats'=>$stats,
         'lowest_references'=>$lowestReferences,
+        'gpu_class_names'=>$gpuNames,
         'live_hashrate'=>miner_monitor_live_hashrate($groups,$targets,$now),
         'live_hourly_cost'=>miner_monitor_live_hourly_cost($groups,$targets,$rates,$now,$gpuNames)];
 }
