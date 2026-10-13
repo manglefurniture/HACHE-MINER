@@ -39,6 +39,12 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
     return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum($values)/3,2),
       'span_seconds'=>$timestamps[0]-$timestamps[2]];
 }
+/** Existing Low automation belongs only to INTERACTIVE (legacy HACHE is separate).
+ * Medium applies to every registered and enabled Salad organization.
+ */
+function miner_auto_policy_group(string $organization,string $priority):bool {
+    return $priority==='medium' || ($priority==='low' && $organization==='interactive');
+}
 function miner_auto_enabled(): bool {
     return getenv('MINER_INTERACTIVE_AUTO_ENABLED')==='1';
 }
@@ -49,7 +55,8 @@ function miner_auto_candidates(int $now): array {
       g.last_seen_at
       FROM group_state g JOIN salad_targets t
       ON t.organization_slug=g.organization AND t.project_slug=g.project_name AND t.enabled=1
-      WHERE g.organization='interactive' AND g.state='running' AND g.priority IN ('low','medium')
+      WHERE g.state='running'
+        AND (g.priority='medium' OR (g.priority='low' AND g.organization='interactive'))
         AND g.last_seen_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       ORDER BY g.id LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
     $out=[];
@@ -67,6 +74,7 @@ function miner_auto_candidates(int $now): array {
        AND detail=? AND (action_name='auto_reallocate_intent'
           OR occurred_at>=UTC_TIMESTAMP()-INTERVAL 60 MINUTE) LIMIT 1");
     foreach($groups as $group){
+        if(!miner_auto_policy_group((string)$group['organization'],(string)$group['priority']))continue;
         $alg->execute([$group['id']]);if(!$alg->fetchColumn())continue;
         $latest->execute([$group['id']]);$nodes=$latest->fetchAll(PDO::FETCH_ASSOC);
         // Parallel replicas are supported, but don't scan unbounded groups.
@@ -99,8 +107,10 @@ function miner_auto_execute(array $candidate): string {
           occurred_at>=UTC_TIMESTAMP()-INTERVAL 60 MINUTE) LIMIT 1");
         $st->execute([$fp]);if($st->fetchColumn())return 'already_requested';
         $liveTarget=miner_reallocation_target((int)$g['id'],$instanceId);
-        if($liveTarget['organization']!=='interactive' || $liveTarget['project_name']!==$g['project_name']
-           || $liveTarget['group_name']!==$g['group_name'])return 'not_interactive';
+        if($liveTarget['organization']!==$g['organization'] || $liveTarget['project_name']!==$g['project_name']
+           || $liveTarget['group_name']!==$g['group_name']
+           || !miner_auto_policy_group((string)$g['organization'],(string)$g['priority']))
+            return 'outside_policy';
         // Reassess all three samples + verified pearlhash immediately after lock.
         $candidates=miner_auto_candidates(time());
         $matching=array_values(array_filter($candidates,static fn($c)=>$c['fingerprint']===$fp));
