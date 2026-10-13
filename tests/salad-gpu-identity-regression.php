@@ -76,6 +76,12 @@ identity_assert(miner_gpu_class_from_instance(['gpu_classes'=>['uuid-5060']], $a
   'Group-like allowed list is not per-instance identity');
 identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'other'], $allowed)===null,
   'Unsupported instance class must not be priced');
+identity_assert(miner_gpu_instance_class_claimed(['gpu_class_id'=>'other']),
+  'Invalid explicit identity must suppress historical and singleton fallbacks');
+identity_assert(miner_gpu_instance_class_claimed(['gpu_class_id'=>'uuid-5060','gpu_class'=>'uuid-5060ti']),
+  'Contradictory explicit identity must be treated as a claim');
+identity_assert(!miner_gpu_instance_class_claimed(['gpu_classes'=>['uuid-5060'],'gpu_class'=>null]),
+  'Absent or null per-instance class is not a contradictory identity');
 identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'uuid-5060','gpu_class'=>'uuid-5060ti'], $allowed)===null,
   'Conflicting explicit class fields must remain unknown');
 
@@ -119,6 +125,8 @@ $monitor=file_get_contents(__DIR__.'/../app/monitor.php');
 $official=file_get_contents(__DIR__.'/../app/salad-gpu-prices.php');
 $sql=file_get_contents(__DIR__.'/../database/007_salad_gpu_class_names.sql');
 identity_assert(str_contains($collector,'miner_gpu_class_for_model(')
+ && str_contains($collector,'miner_gpu_instance_class_claimed(')
+ && str_contains($collector,'($explicitClaim && $explicitClass===null)')
  && str_contains($collector,'miner_gpu_previous_running_class('),
  'Collector must identify each actual GPU model before pricing');
 identity_assert(str_contains($collector,'gpu_classes'), 'Allowed Salad classes must be maintained');
