@@ -7,6 +7,7 @@ require_once dirname(__DIR__).'/app/shares.php';
 require_once dirname(__DIR__).'/app/finances.php';
 require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 require_once dirname(__DIR__).'/app/salad-gpu-identity.php';
+require_once dirname(__DIR__).'/app/salad-log-coverage.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -20,18 +21,32 @@ function miner_run_record(string $source,string $status,string $detail): void {
 function miner_logs(string $org,string $project,string $group,string $key): array {
     $url='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/log-entries';
     $safe=static fn(string $v):string=>str_replace(['"',"'"],'',$v);
-    $end=new DateTimeImmutable('now',new DateTimeZone('UTC'));
-    $body=[
-      'sort_order'=>'desc','start_time'=>$end->sub(new DateInterval('PT7M'))->format('Y-m-d\\TH:i:s\\Z'),
-      'end_time'=>$end->format('Y-m-d\\TH:i:s\\Z'),'page_size'=>100,
-      'query'=>'resource.type = "container" and resource.labels.project_name = "'.$safe($project).'" and resource.labels.container_group_name = "'.$safe($group).'"'
-    ];
-    $ch=curl_init($url);
-    curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>7,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_HTTPHEADER=>['Salad-Api-Key: '.$key,'Content-Type: application/json'],CURLOPT_POSTFIELDS=>json_encode($body,JSON_THROW_ON_ERROR)]);
-    $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
-    if(!is_string($raw)||$status<200||$status>=300||strlen($raw)>1500000)throw new RuntimeException('Logs HTTP '.$status);
-    $data=json_decode($raw,true,512,JSON_THROW_ON_ERROR);
-    return is_array($data['items']??null)?$data['items']:[];
+    $query='resource.type = "container" and resource.labels.project_name = "'
+        .$safe($project).'" and resource.labels.container_group_name = "'.$safe($group).'"';
+    $end=time();
+    // Salad log collection has page_min_time/page_max_time but no cursor.
+    // A full 100-item window is split recursively (bounded by requests/time).
+    $fetch=static function(int $from,int $to) use($url,$query,$key):array {
+        $body=[
+            'sort_order'=>'desc',
+            'start_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$from),
+            'end_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$to),
+            'page_size'=>100,'query'=>$query
+        ];
+        $ch=curl_init($url);
+        curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,
+            CURLOPT_TIMEOUT=>6,CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_FOLLOWLOCATION=>false,
+            CURLOPT_HTTPHEADER=>['Salad-Api-Key: '.$key,'Content-Type: application/json'],
+            CURLOPT_POSTFIELDS=>json_encode($body,JSON_THROW_ON_ERROR)]);
+        $raw=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if(!is_string($raw)||$status<200||$status>=300||strlen($raw)>1500000)
+            throw new RuntimeException('Logs HTTP '.$status);
+        $data=json_decode($raw,true,512,JSON_THROW_ON_ERROR);
+        if(!is_array($data))throw new UnexpectedValueException('Malformed Salad logs response');
+        return $data;
+    };
+    return miner_log_collect_windows($fetch,$end-420,$end,8,14.0);
 }
 function miner_positive_number(mixed $v): ?string {
     return $v!==null?miner_finite_decimal($v,8):null;
@@ -195,8 +210,18 @@ function miner_poll_salad(string $org,string $project,string $key): void {
             $logs=[];$logsError=null;
             $stage='logs';
             try {
-                $logs=miner_logs($org,$project,$g['name'],$key);
+                $coverage=miner_logs($org,$project,$g['name'],$key);
+                $logs=$coverage['items'];
                 miner_log_save($g['id'],$logs,$nodes);
+                miner_run_record('salad-logs:'.$org.'/'.$project.'/'.$g['name'],
+                    $coverage['partial']?'partial':'ok',
+                    'windows: '.$coverage['requests'].'; unique events: '.$coverage['unique']
+                    .'; saturated: '.$coverage['saturated_windows']);
+                if($coverage['partial']){
+                    $failed++;
+                    miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',
+                        'Log coverage bounded; no invented individual hash for uncovered instances');
+                }
             } catch(Throwable $e) { $logsError=$e; }
             $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
             // Verified hardware identity can arrive with 0 H/s; it is never
