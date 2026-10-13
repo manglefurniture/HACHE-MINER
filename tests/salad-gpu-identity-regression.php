@@ -86,6 +86,8 @@ identity_assert(miner_monitor_log_metric($zero)===null,
   'Zero H/s row must not become TH/s performance data');
 identity_assert(miner_monitor_log_gpu_identity($zero)==='RTX 5050',
   'Zero-speed indexed GPU row should expose model');
+identity_assert(miner_monitor_log_gpu_identity('[2026-10-13 12:38:00] #0 RTX 5060 Laptop 0.00 H/s 5.4W')==='RTX 5060 Laptop',
+  'Laptop suffix must not be truncated by trim mask');
 identity_assert(miner_monitor_log_gpu_identity('Hashrate 0.00 H/s 5.4W')===null,
   'Aggregate zero speed cannot prove a GPU model');
 identity_assert(miner_monitor_log_gpu_identity('GPU0 share accepted')===null,
