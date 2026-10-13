@@ -199,17 +199,36 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 miner_log_save($g['id'],$logs,$nodes);
             } catch(Throwable $e) { $logsError=$e; }
             $metrics=miner_monitor_instance_log_metrics($logs,$nodes);
+            // Verified hardware identity can arrive with 0 H/s; it is never
+            // fabricated into hashrate or accepted shares.
+            $gpuModels=miner_monitor_instance_log_gpu_models($logs,$nodes);
             $shareCounters=miner_share_instance_counters($logs,$nodes);
             foreach($nodes as $node) {
                 if(!is_array($node))continue;
                 $id=(string)($node['instance_id']??$node['id']??'');
                 $metric=$metrics[$id]??null;
-                // An explicit per-instance miner model takes precedence even
-                // if the group allows only one class. Contradictions stay NULL.
-                $gpuClass=$metric!==null
-                    ?miner_gpu_class_for_model($g['gpu_classes'],(string)($metric['gpu']??''),$names)
-                    :$g['gpu_class'];
-                if($gpuClass===null && $metric===null && miner_salad_prices_ready(miner_db())) {
+                // Match a class independently of hashrate, using explicit
+                // instance fields first and only provably attributed logs.
+                // Conflicting GPU models / identities must never get a price.
+                $hasGpuEvidence=array_key_exists($id,$gpuModels);
+                $model=$metric['gpu']??($gpuModels[$id]??null);
+                $modelClass=$model!==null
+                    ?miner_gpu_class_for_model($g['gpu_classes'],(string)$model,$names)
+                    :null;
+                $explicitClass=miner_gpu_class_from_instance($node,$g['gpu_classes']);
+                // Non-null explicit API fields are claims. If unpermitted or
+                // contradictory, do not fall back to a group or older class.
+                $explicitClaim=miner_gpu_instance_class_claimed($node);
+                $conflict=($hasGpuEvidence && $gpuModels[$id]===null)
+                    || ($explicitClaim && $explicitClass===null);
+                if($conflict || ($model!==null && ($modelClass===null
+                    || ($explicitClass!==null && $explicitClass!==$modelClass)))) {
+                    $gpuClass=null;
+                } else {
+                    $gpuClass=$modelClass??$explicitClass??$g['gpu_class'];
+                }
+                if($gpuClass===null && !$conflict && $model===null && $explicitClass===null
+                    && miner_salad_prices_ready(miner_db())) {
                     $gpuClass=miner_gpu_previous_running_class(miner_db(),$g['id'],$id,
                         $priority,$snapshotAt,$g['gpu_classes']);
                 }

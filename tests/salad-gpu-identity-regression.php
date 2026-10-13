@@ -66,11 +66,67 @@ $groups[0]['instances'][1]['gpu_class']=null;
 $cost=miner_monitor_live_hourly_cost($groups,$targets,$prices,$now);
 identity_assert($cost['priced']===1 && $cost['unpriced']===2,'Missing individual identity cannot inherit another replica price');
 
+// Salad may provide a structured per-instance class. Never infer it from the
+// group's list of permitted classes, or accept an unpermitted ID.
+identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'uuid-5060'], $allowed)==='uuid-5060',
+  'Explicit per-instance class may be used for official prices');
+identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'uuid-5060ti'], $allowed)==='uuid-5060ti',
+  'Ti must retain its distinct explicit class');
+identity_assert(miner_gpu_class_from_instance(['gpu_classes'=>['uuid-5060']], $allowed)===null,
+  'Group-like allowed list is not per-instance identity');
+identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'other'], $allowed)===null,
+  'Unsupported instance class must not be priced');
+identity_assert(miner_gpu_instance_class_claimed(['gpu_class_id'=>'other']),
+  'Invalid explicit identity must suppress historical and singleton fallbacks');
+identity_assert(miner_gpu_instance_class_claimed(['gpu_class_id'=>'uuid-5060','gpu_class'=>'uuid-5060ti']),
+  'Contradictory explicit identity must be treated as a claim');
+identity_assert(!miner_gpu_instance_class_claimed(['gpu_classes'=>['uuid-5060'],'gpu_class'=>null]),
+  'Absent or null per-instance class is not a contradictory identity');
+identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'uuid-5060','gpu_class'=>'uuid-5060ti'], $allowed)===null,
+  'Conflicting explicit class fields must remain unknown');
+
+// Real SRBMiner zero-speed rows still reveal GPU hardware, without proving
+// mining activity. No group's aggregate or share lines may be used.
+$zero='[2026-10-13 12:38:00] #0 RTX 5050 0.00 H/s 5.4W - 41% 33C';
+identity_assert(miner_monitor_log_metric($zero)===null,
+  'Zero H/s row must not become TH/s performance data');
+identity_assert(miner_monitor_log_gpu_identity($zero)==='RTX 5050',
+  'Zero-speed indexed GPU row should expose model');
+identity_assert(miner_monitor_log_gpu_identity('[2026-10-13 12:38:00] #0 RTX 5060 Laptop 0.00 H/s 5.4W')==='RTX 5060 Laptop',
+  'Laptop suffix must not be truncated by trim mask');
+identity_assert(miner_monitor_log_gpu_identity('Hashrate 0.00 H/s 5.4W')===null,
+  'Aggregate zero speed cannot prove a GPU model');
+identity_assert(miner_monitor_log_gpu_identity('GPU0 share accepted')===null,
+  'Share messages cannot prove hardware identity');
+$clock=strtotime('2026-10-13 12:43:00 UTC');
+$nodeA=['instance_id'=>'gpu-a','machine_id'=>'machine-a','state'=>'running','started'=>true,'ready'=>true,
+ 'update_time'=>'2026-10-13T12:31:00Z'];
+$nodeB=['instance_id'=>'gpu-b','machine_id'=>'machine-b','state'=>'running','started'=>true,'ready'=>true,
+ 'update_time'=>'2026-10-13T12:31:00Z'];
+$zeroEvidence=['time'=>'2026-10-13T12:42:00Z','text_log'=>$zero,
+ 'resource'=>['labels'=>['machine_id'=>'machine-a']]];
+$anonymous=['time'=>'2026-10-13T12:42:00Z','text_log'=>$zero];
+$models=miner_monitor_instance_log_gpu_models([$zeroEvidence,$anonymous],[$nodeA,$nodeB],$clock);
+identity_assert(($models['gpu-a']??null)==='RTX 5050' && !isset($models['gpu-b']),
+  'Only verified exact instance may use zero-speed hardware identity');
+identity_assert(str_ends_with(miner_monitor_tagged_log_summary($zeroEvidence,[$nodeA,$nodeB]),
+  '[MONITOR_GPU_ATTRIBUTED]'),'Verified zero-speed identity must be auditable');
+identity_assert(str_ends_with(miner_monitor_tagged_log_summary($anonymous,[$nodeA,$nodeB]),
+  '[MONITOR_GPU_UNATTRIBUTED]'),'Anonymous zero-speed row cannot be assigned in mixed group');
+$conflicting=$zeroEvidence;
+$conflicting['time']='2026-10-13T12:41:00Z';
+$conflicting['text_log']='[2026-10-13 12:41:00] #0 RTX 5060 0.00 H/s 5.4W';
+$models=miner_monitor_instance_log_gpu_models([$zeroEvidence,$conflicting],[$nodeA,$nodeB],$clock);
+identity_assert(array_key_exists('gpu-a',$models) && $models['gpu-a']===null,
+  'Different models on one instance must fail closed without a class');
+
 $collector=file_get_contents(__DIR__.'/../bin/poll.php');
 $monitor=file_get_contents(__DIR__.'/../app/monitor.php');
 $official=file_get_contents(__DIR__.'/../app/salad-gpu-prices.php');
 $sql=file_get_contents(__DIR__.'/../database/007_salad_gpu_class_names.sql');
 identity_assert(str_contains($collector,'miner_gpu_class_for_model(')
+ && str_contains($collector,'miner_gpu_instance_class_claimed(')
+ && str_contains($collector,'($explicitClaim && $explicitClass===null)')
  && str_contains($collector,'miner_gpu_previous_running_class('),
  'Collector must identify each actual GPU model before pricing');
 identity_assert(str_contains($collector,'gpu_classes'), 'Allowed Salad classes must be maintained');

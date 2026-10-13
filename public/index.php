@@ -473,7 +473,7 @@ foreach($monitorData['groups'] as $group) {
 <?php if($node['avg_recent']!==null): ?><small>Promedio de últimas muestras: <?= miner_h(number_format($node['avg_recent'],2,'.','')) ?> TH/s</small><?php endif; ?>
 </div>
 <div class="monitor-node-facts">
-<span>GPU: <?= miner_h($m['gpu_model']??$g['gpu_class']??'No identificada') ?></span>
+<span>GPU: <?= miner_h($m['gpu_model']??($monitorData['gpu_class_names'][$org."\0".(string)($node['gpu_class']??'')]??'No identificada')) ?></span>
 <span>Potencia: <?= $m!==null && $m['watts']!==null?miner_h(number_format($m['watts'],0)).' W':'Sin datos' ?></span>
 <span>Estado observado: <?= miner_h($node['state']) ?></span>
 <span>Última medida UTC: <?= miner_h($m['at']??'Sin datos') ?></span>

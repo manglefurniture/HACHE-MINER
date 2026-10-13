@@ -45,6 +45,26 @@ function miner_gpu_class_for_model(array $allowedIds,string $logModel,array $cat
     return count($matches)===1?(string)array_key_first($matches):null;
 }
 /** Only continue a class already proven for THIS exact running instance. */
+/**
+ * Use a per-instance class only when Salad explicitly supplies ONE class ID.
+ * The group's gpu_classes array is an allowed list, not an instance identity.
+ * Current Salad responses may omit this field; that must remain unknown.
+ */
+function miner_gpu_instance_class_claimed(array $instance):bool {
+    return isset($instance['gpu_class_id']) || isset($instance['gpu_class']);
+}
+
+function miner_gpu_class_from_instance(array $instance,array $allowedIds): ?string {
+    $found=[];
+    foreach(['gpu_class_id','gpu_class'] as $key) {
+        $value=$instance[$key]??null;
+        if($value===null)continue;
+        if(!is_string($value) || !in_array($value,$allowedIds,true))return null;
+        $found[$value]=true;
+    }
+    return count($found)===1?(string)array_key_first($found):null;
+}
+
 function miner_gpu_previous_running_class(PDO $db,int $groupId,string $instanceId,string $priority,
     string $now,array $allowedIds):?string {
     $st=$db->prepare('SELECT observed_at,state,priority_at_observation,gpu_class_at_observation
