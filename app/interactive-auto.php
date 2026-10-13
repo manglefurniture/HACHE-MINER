@@ -21,10 +21,12 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
         $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$stamp,new DateTimeZone('UTC'));
         $hash=$row['hashrate_ths']??null;
         $gpu=strtoupper((string)($row['gpu_model']??''));
+        $samplePriority=strtolower(trim((string)($row['priority_at_observation']??'')));
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
           || (float)$hash<0 || ($priority==='low' && (float)$hash>125.0)
           || ($priority==='medium' && (float)$hash>=130.0)
-          || ($priority==='medium' && strtolower((string)($row['priority_at_observation']??''))!=='medium')
+          || ($priority==='medium' && $samplePriority!=='medium')
+          || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
           || !str_contains($gpu,'4070 TI SUPER')
           || (int)($row['ready']??0)!==1 || (int)($row['started']??0)!==1
           || strtolower((string)($row['state']??''))!=='running')return null;
@@ -39,11 +41,11 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
     return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum($values)/3,2),
       'span_seconds'=>$timestamps[0]-$timestamps[2]];
 }
-/** Existing Low automation belongs only to INTERACTIVE (legacy HACHE is separate).
- * Medium applies to every registered and enabled Salad organization.
+/** The registered/enabled target controls organization membership.
+ * Both Low and Medium are global. HACHE's legacy poller is alert-only.
  */
 function miner_auto_policy_group(string $organization,string $priority):bool {
-    return $priority==='medium' || ($priority==='low' && $organization==='interactive');
+    return $organization!=='' && in_array($priority,['low','medium'],true);
 }
 function miner_auto_enabled(): bool {
     return getenv('MINER_INTERACTIVE_AUTO_ENABLED')==='1';
@@ -56,7 +58,7 @@ function miner_auto_candidates(int $now): array {
       FROM group_state g JOIN salad_targets t
       ON t.organization_slug=g.organization AND t.project_slug=g.project_name AND t.enabled=1
       WHERE g.state='running'
-        AND (g.priority='medium' OR (g.priority='low' AND g.organization='interactive'))
+        AND g.priority IN ('low','medium')
         AND g.last_seen_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       ORDER BY g.id LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
     $out=[];
@@ -67,7 +69,8 @@ function miner_auto_candidates(int $now): array {
       WHERE group_id=? AND observed_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       GROUP BY instance_id LIMIT 20");
     // Optional schema 006 is not guaranteed on older deployments. Its absence
-    // must not interrupt the existing Low protection; Medium fails closed.
+    // must not interrupt Low; Medium fails closed without historical priority.
+    // If populated, Low observations must also match their recorded priority.
     $prioritySql=miner_salad_prices_ready($db)
         ? 'priority_at_observation' : 'NULL AS priority_at_observation';
     $samples=$db->prepare("SELECT observed_at,state,ready,started,hashrate_ths,gpu_model,$prioritySql

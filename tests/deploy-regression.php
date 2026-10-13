@@ -147,7 +147,8 @@ assert_deploy(str_contains($creditsMigration, 'mariadb-dump --single-transaction
 assert_deploy(str_contains($creditsImport, "posix_geteuid()!==0"), 'Private screenshot importer must require root');
 assert_deploy(str_contains($creditsImport, "hash_file('sha256'"), 'Screenshot import must be pinned to private evidence checksum');
 assert_deploy(!str_contains($creditsImport, 'miner_reallocation_execute('), 'Financial importer must not modify GPUs');
-assert_deploy(str_contains($interactiveAuto, "g.organization='interactive'"), 'Interactive watchdog must not modify HACHE groups');
+assert_deploy(str_contains($interactiveAuto, "g.priority IN ('low','medium')"), 'Automatic PRL rules must cover all registered organizations in Low and Medium');
+assert_deploy(str_contains($interactiveAuto, "miner_auto_policy_group("), 'Automatic rule must validate eligible priorities before attempting a request');
 assert_deploy(str_contains($interactiveAuto, "summary LIKE '%[pearlhash]%'"), 'Only verified PRL algorithm may trigger automated reallocation');
 assert_deploy(str_contains($interactiveAuto, "INTERVAL 60 MINUTE"), 'Automated requests must wait after manual intervention');
 assert_deploy(str_contains($interactiveAuto, "'auto_reallocate_intent'"), 'Durable intent required before API POST');
