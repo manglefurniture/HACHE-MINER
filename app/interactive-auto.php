@@ -11,9 +11,11 @@ require_once __DIR__.'/monitor.php';
 function miner_auto_low_prl_metric(array $rows, int $now): ?array {
     return miner_auto_prl_metric($rows,$now,'low');
 }
-/** Low keeps its original <=125 TH/s rule. Medium is strictly <130 TH/s. */
+/** Low: 3 readings <=125. Medium globally: 2 readings <130 OR 3 readings <140. */
 function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array {
-    if(!in_array($priority,['low','medium'],true) || count($rows)<3)return null;
+    if(!in_array($priority,['low','medium'],true) || count($rows)<2)return null;
+    $required=$priority==='low'?3:2;
+    if(count($rows)<$required)return null;
     $rows=array_slice($rows,0,3);
     $timestamps=[];$values=[];
     foreach($rows as $row) {
@@ -23,23 +25,35 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
         $gpu=strtoupper((string)($row['gpu_model']??''));
         $samplePriority=strtolower(trim((string)($row['priority_at_observation']??'')));
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
-          || (float)$hash<0 || ($priority==='low' && (float)$hash>125.0)
-          || ($priority==='medium' && (float)$hash>=130.0)
+          || (float)$hash<0
           || ($priority==='medium' && $samplePriority!=='medium')
           || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
           || !str_contains($gpu,'4070 TI SUPER')
           || (int)($row['ready']??0)!==1 || (int)($row['started']??0)!==1
-          || strtolower((string)($row['state']??''))!=='running')return null;
+          || strtolower((string)($row['state']??''))!=='running')break;
         $timestamps[]=$parsed->getTimestamp();$values[]=(float)$hash;
     }
-    // Three distinct observations ~5m apart; skip ambiguous gaps, clock drift
-    // and samples too old. Never infer sustained mining from a single log.
-    if($timestamps[0]>$now+120 || $now-$timestamps[0]>480
-       || $timestamps[0]-$timestamps[1]<240 || $timestamps[0]-$timestamps[1]>450
-       || $timestamps[1]-$timestamps[2]<240 || $timestamps[1]-$timestamps[2]>450
-       || $timestamps[0]-$timestamps[2]<540 || $timestamps[0]-$timestamps[2]>900)return null;
-    return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum($values)/3,2),
-      'span_seconds'=>$timestamps[0]-$timestamps[2]];
+    $valid=count($values);
+    if($valid<$required || $timestamps[0]>$now+120 || $now-$timestamps[0]>480)return null;
+    $spacing=static function(int $n)use($timestamps):bool {
+        for($i=1;$i<$n;$i++){
+            $gap=$timestamps[$i-1]-$timestamps[$i];
+            if($gap<240 || $gap>450)return false;
+        }
+        return $n!==3 || ($timestamps[0]-$timestamps[2]>=540 && $timestamps[0]-$timestamps[2]<=900);
+    };
+    $count=0;$rule='';
+    if($priority==='medium' && $values[0]<130.0 && $values[1]<130.0 && $spacing(2)){
+        $count=2;$rule='medium_2_below_130';
+    } elseif($valid>=3 && $spacing(3)
+        && ($priority==='low'
+            ? ($values[0]<=125.0 && $values[1]<=125.0 && $values[2]<=125.0)
+            : ($values[0]<140.0 && $values[1]<140.0 && $values[2]<140.0))){
+        $count=3;$rule=$priority==='low'?'low_3_at_most_125':'medium_3_below_140';
+    }
+    if($count===0)return null;
+    return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum(array_slice($values,0,$count))/$count,2),
+      'span_seconds'=>$timestamps[0]-$timestamps[$count-1],'rule'=>$rule,'samples'=>$count];
 }
 /** The registered/enabled target controls organization membership.
  * Both Low and Medium are global. HACHE's legacy poller is alert-only.
@@ -118,7 +132,7 @@ function miner_auto_execute(array $candidate): string {
            || $liveTarget['group_name']!==$g['group_name']
            || !miner_auto_policy_group((string)$g['organization'],(string)$g['priority']))
             return 'outside_policy';
-        // Reassess all three samples + verified pearlhash immediately after lock.
+        // Reassess the applicable two- or three-sample rule and verified pearlhash after lock.
         $candidates=miner_auto_candidates(time());
         $matching=array_values(array_filter($candidates,static fn($c)=>$c['fingerprint']===$fp));
         if(count($matching)!==1)return 'no_longer_eligible';
