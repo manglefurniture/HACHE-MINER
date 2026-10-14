@@ -122,11 +122,12 @@ assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'C
 assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-node--red') && str_contains($css, '.monitor-node--yellow') && str_contains($css, '.monitor-node--green'), 'Card and traffic-light styles must exist');
 assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
-assert_deploy(str_contains($poll, 'log contains~ "TH/s"')
-    && str_contains($poll, 'log !contains~ "TH/s"')
+assert_deploy(str_contains($poll, "\$metricFilter='(log contains~ \"TH/s\" or log contains~ \"0.00 H/s\")'")
+    && str_contains($poll, "\$fetch(\$baseQuery.' and '.\$metricFilter)")
+    && str_contains($poll, "\$fetch(\$baseQuery.' and not '.\$metricFilter)")
     && str_contains($poll, '$start,$end,7,min(11.5')
     && str_contains($poll, 'max(1,8-(int)$metrics[\'requests\'])'),
-    'Focused metrics must get up to seven pages while disjoint general history retains remaining request budget');
+    'Focused telemetry must include stopped GPU rows and exclude them from general overflow-prone pages');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
     && str_contains($monitor, 'miner_metric_timestamp_schema_ready($db)')

@@ -44,7 +44,7 @@ function miner_monitor_log_metric(string $line): ?array {
     // (no "GPU0" prefix) and may omit watts/fan/temperature. Anchor to the
     // beginning of the log after its timestamp: do not match pool/share text.
     $table='/^(?:\[[^\]\r\n]{1,90}\]\s*)?(?:GPU\s*#?\d{1,2}\s+)?#\d{1,2}\s+'
-          .'(?<gpu>[^\r\n]{3,120}?)\s+(?<hash>\d+(?:\.\d+)?)\s+TH\/s\b/i';
+          .'(?<gpu>[^\r\n]{3,120}?)\s+(?<hash>\d+(?:\.\d+)?)\s+(?<unit>TH\/s|H\/s)\b/i';
     if(preg_match($strict,$clean,$m)) {
         $match=$m;
     } elseif(preg_match($table,$clean,$m)) {
@@ -55,7 +55,7 @@ function miner_monitor_log_metric(string $line): ?array {
         // AND TH/s on that SAME line, never a standalone pool/worker total.
         $pattern='/\bGPU\s*(?:#?\d+|\[\d+\])\s*(?:#\d+)?\s*[:\-|]?\s*'
                .'(?<gpu>[^\\r\\n]{3,130}?)\s*[:\-|]?\s*'
-               .'(?<hash>\d+(?:\.\d+)?)\s*TH\/s\b/i';
+               .'(?<hash>\d+(?:\.\d+)?)\s*(?<unit>TH\/s|H\/s)\b/i';
         if(preg_match($pattern,$clean,$m))$match=$m;
     }
     if($match===null)return null;
@@ -63,6 +63,9 @@ function miner_monitor_log_metric(string $line): ?array {
     if($gpu===''||strlen($gpu)>120 || !preg_match('/[a-zA-Z]/',$gpu)
         || preg_match('/\b(?:share|shares|accepted|rejected|pool|total|average|hashrate|worker|speed|reported|overall|min|mins|minute|minutes|avg)\b/i',$gpu))return null;
     $hash=(float)$match['hash'];
+    // A proven GPU row reporting exactly zero H/s is real zero production,
+    // not missing telemetry. Never convert positive H/s (or pool totals) to TH/s.
+    if(isset($match['unit']) && strcasecmp((string)$match['unit'],'H/s')===0 && $hash!==0.0)return null;
     if(!is_finite($hash)||$hash<0||$hash>20000)return null;
     // Power, temperature and fan are optional metadata, never prerequisites
     // for recognizing an actual per-GPU hashrate.

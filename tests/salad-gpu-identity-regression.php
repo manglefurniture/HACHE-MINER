@@ -88,8 +88,9 @@ identity_assert(miner_gpu_class_from_instance(['gpu_class_id'=>'uuid-5060','gpu_
 // Real SRBMiner zero-speed rows still reveal GPU hardware, without proving
 // mining activity. No group's aggregate or share lines may be used.
 $zero='[2026-10-13 12:38:00] #0 RTX 5050 0.00 H/s 5.4W - 41% 33C';
-identity_assert(miner_monitor_log_metric($zero)===null,
-  'Zero H/s row must not become TH/s performance data');
+$zeroMeasurement=miner_monitor_log_metric($zero);
+identity_assert($zeroMeasurement!==null && $zeroMeasurement['hashrate_ths']===0.0,
+  'Verified zero H/s device row is measured zero production, not missing data');
 identity_assert(miner_monitor_log_gpu_identity($zero)==='RTX 5050',
   'Zero-speed indexed GPU row should expose model');
 identity_assert(miner_monitor_log_gpu_identity('[2026-10-13 12:38:00] #0 RTX 5060 Laptop 0.00 H/s 5.4W')==='RTX 5060 Laptop',
