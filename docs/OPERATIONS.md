@@ -245,7 +245,7 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 
 ## Lectura individual de TH/s desde logs Salad
 
-- El recolector prioriza en una consulta acotada los logs que contienen `TH/s` y después consulta el historial general excluyéndolos. Las páginas no se solapan; ambas consultas comparten el presupuesto de hasta ocho solicitudes y 14 segundos por grupo.
+- El recolector prioriza los logs que contienen `TH/s`, paginando hasta siete respuestas si hacen falta; el historial general excluye esas líneas y recibe todas las solicitudes restantes (al menos una). Las páginas no se solapan; el límite total sigue siendo ocho solicitudes y 14 segundos por grupo.
 - La hora efectiva se conserva exactamente desde el log en `miner_observations.metric_observed_at`. Es una columna aditiva, no una tabla nueva. El monitor y el recolector detectan si la migración 008 aún no existe: siguen funcionando y preservan la historia, pero dejan las lecturas actuales como desconocidas hasta que se agregue la columna.
 - Antes de activar la cobertura individual, el propietario ejecuta en MariaDB sobre `hache_miner`: `ALTER TABLE miner_observations ADD COLUMN IF NOT EXISTS metric_observed_at VARCHAR(40) NULL AFTER estimated_cost_usd;`. No se sustituye por `observed_at`, que representa la hora de sondeo y no la hora de la línea de minado.
 - Los consumidores de métricas aceptan SQL UTC y RFC3339, incluidos offsets y fracciones de segundo; se comparan por instante UTC para que la lectura siga visible en tarjetas y totales agregados.

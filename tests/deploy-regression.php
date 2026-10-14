@@ -123,8 +123,10 @@ assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.moni
 assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
 assert_deploy(str_contains($poll, 'log contains~ "TH/s"')
-    && str_contains($poll, 'log !contains~ "TH/s"'),
-    'Focused metrics and general history must use disjoint Salad log queries');
+    && str_contains($poll, 'log !contains~ "TH/s"')
+    && str_contains($poll, '$start,$end,7,min(11.5')
+    && str_contains($poll, 'max(1,8-(int)$metrics[\'requests\'])'),
+    'Focused metrics must get up to seven pages while disjoint general history retains remaining request budget');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
     && str_contains($monitor, 'miner_metric_timestamp_schema_ready($db)')

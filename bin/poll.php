@@ -59,7 +59,7 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     $metricStarted=microtime(true);
     try {
         $metrics=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "TH/s"'),
-            $start,$end,3,min(4.0,max(0.2,$deadline-microtime(true))));
+            $start,$end,7,min(11.5,max(0.2,$deadline-microtime(true)-2.5)));
     } catch(Throwable $e) {
         // A failed focused query must not suppress normal event collection.
         $metrics=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
