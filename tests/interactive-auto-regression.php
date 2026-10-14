@@ -22,21 +22,43 @@ auto_check(miner_auto_low_prl_metric([$samples[0]],$now)===null,'Single low read
 auto_check(miner_auto_low_prl_metric([$samples[0],$samples[1]],$now)===null,'Two samples not enough');
 auto_check(miner_auto_low_prl_metric([$row('2026-10-09 21:09:00',125),$samples[1],$samples[2]],$now)!==null,'Exact 125 threshold should qualify');
 auto_check(miner_auto_low_prl_metric([$row('2026-10-09 21:09:00',125.01),$samples[1],$samples[2]],$now)===null,'No action above threshold');
-// Medium is a separate strict threshold: 129.99 qualifies, exactly 130 does not.
-// The last three readings must all belong to Medium, not a previous Low run.
+// Medium: two distinct consecutive observations strictly below 145 TH/s.
+// All required observations must be from Medium, the same GPU and instance.
 $mediumRow=static function(string $date,float $hash,string $priority='medium',string $gpu='RTX 4070 Ti SUPER') use ($row):array {
     return array_replace($row($date,$hash,$gpu),['priority_at_observation'=>$priority]);
 };
 $medium=[
- $mediumRow('2026-10-09 21:09:00',129.99),
- $mediumRow('2026-10-09 21:04:00',129.5),
- $mediumRow('2026-10-09 20:59:00',129.8)
+ $mediumRow('2026-10-09 21:09:00',144.99),
+ $mediumRow('2026-10-09 21:04:00',144.50),
+ $mediumRow('2026-10-09 20:59:00',165.0)
 ];
-auto_check(miner_auto_prl_metric($medium,$now,'medium')!==null,'Sustained Medium below 130 TH/s must qualify');
-auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',130.0),$medium[1],$medium[2]],$now,'medium')===null,'Exactly 130 TH/s must NOT reallocate');
-auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',131),$medium[2]],$now,'medium')===null,'Recovered Medium GPU must not reallocate');
-auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',120,'low'),$medium[2]],$now,'medium')===null,'Low observations cannot trigger Medium policy');
-auto_check(miner_auto_prl_metric([$medium[0],$medium[1],$mediumRow('2026-10-09 20:59:00',120,'medium','RTX 5080')],$now,'medium')===null,'Different GPU in Medium must be excluded');
+$mediumGood=miner_auto_prl_metric($medium,$now,'medium');
+auto_check($mediumGood!==null,'Two consecutive Medium readings below 145 TH/s must qualify');
+auto_check($mediumGood['span_seconds']===300 && $mediumGood['average_ths']===144.75,
+    'Medium must use exactly the two newest samples, not a third historical reading');
+auto_check(miner_auto_prl_metric([$medium[0]],$now,'medium')===null,'One Medium reading must not trigger');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',145),$medium[1]],$now,'medium')===null,
+    'Exactly 145 TH/s in latest sample must not qualify');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',145)],$now,'medium')===null,
+    'Exactly 145 TH/s in earlier sample must not qualify');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',146),$medium[1]],$now,'medium')===null,
+    'Recovered latest Medium GPU must not qualify');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',150)],$now,'medium')===null,
+    'Recovered earlier Medium GPU must not qualify');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',120,'low')],$now,'medium')===null,
+    'Low observations cannot trigger Medium policy');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:04:00',120,'medium','RTX 5080')],$now,'medium')===null,
+    'Other GPU models must not trigger Medium');
+auto_check(miner_auto_prl_metric([$medium[0],array_replace($medium[1],['ready'=>0])],$now,'medium')===null,
+    'Medium requires the GPU to be ready for both readings');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:09:00',130)],$now,'medium')===null,
+    'Repeated Medium timestamps must not count as two readings');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:07:00',130)],$now,'medium')===null,
+    'Medium observations closer than 4 minutes must not qualify');
+auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:01:00',130)],$now,'medium')===null,
+    'Medium observations more than 7.5 minutes apart must not qualify');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 20:59:00',130),$mediumRow('2026-10-09 20:54:00',130)],$now,'medium')===null,
+    'Stale Medium observations must not qualify');
 auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'High priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'lowest')===null,'Lowest priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'low')===null,'Existing Low rule must remain at 125 TH/s');
