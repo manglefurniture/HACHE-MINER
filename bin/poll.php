@@ -152,9 +152,12 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     // Preserve billing provenance. Never apply today's rate to a sample
     // recorded before official prices or across class/priority/rate changes.
     $officialSchema=miner_salad_prices_ready($db);
-    $prev=$db->prepare($officialSchema
-        ? 'SELECT observed_at,state,metric_observed_at,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1'
-        : 'SELECT observed_at,state,metric_observed_at FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
+    $metricTimestampSchema=miner_metric_timestamp_schema_ready($db);
+    $previousColumns=['observed_at','state'];
+    if($metricTimestampSchema)$previousColumns[]='metric_observed_at';
+    if($officialSchema)array_push($previousColumns,'gpu_class_at_observation','priority_at_observation','official_rate_usd_per_hour');
+    $prev=$db->prepare('SELECT '.implode(',',$previousColumns)
+        .' FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
     $cost=null;
     // Billing estimate counts contiguous Salad running time, including miner startup.
@@ -179,30 +182,30 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $metricTs=isset($safeMetric['log_at'])?strtotime((string)$safeMetric['log_at']):false;
     // Overlapping seven-minute windows must not count the same miner log as a
     // new historical sample. Keep its original timestamp, not the poll time.
-    $metricFresh=$metricTs!==false && miner_metric_timestamp_is_newer(
+    $metricFresh=$metricTs!==false && (!$metricTimestampSchema || miner_metric_timestamp_is_newer(
         (string)$safeMetric['log_at'],
-        !empty($old['metric_observed_at'])?(string)$old['metric_observed_at']:null);
+        !empty($old['metric_observed_at'])?(string)$old['metric_observed_at']:null));
     if(!$metricFresh)$safeMetric=null;
-    $metricAt=$metricFresh?(string)$safeMetric['log_at']
+    $metricAt=$metricTimestampSchema&&$metricFresh?(string)$safeMetric['log_at']
         :($old['metric_observed_at']??null);
+    $columns=['group_id','instance_id','observed_at','state','ready','started','hashrate_ths','gpu_model',
+        'watts','accepted_shares','estimated_cost_usd'];
     $params=[
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
-        $safeShares['accepted']??null,$cost,$metricAt
+        $safeShares['accepted']??null,$cost
     ];
+    if($metricTimestampSchema){$columns[]='metric_observed_at';$params[]=$metricAt;}
     if($officialSchema){
         // Rate source is explicit: NULL means missing official API price.
-        $st=$db->prepare('INSERT IGNORE INTO miner_observations
-           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,metric_observed_at,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $st->execute([...$params,$gpuClass,$priority,$rate]);
-    }else{
-        // Migration pending: preserve observations without pretending legacy rates are official.
-        $st=$db->prepare('INSERT IGNORE INTO miner_observations
-           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,metric_observed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-        $st->execute($params);
+        array_push($columns,'gpu_class_at_observation','priority_at_observation','official_rate_usd_per_hour');
+        array_push($params,$gpuClass,$priority,$rate);
     }
+    // Additive timestamp migration is optional during rollout; without it,
+    // keep collecting legacy history while leaving source-time metrics unknown.
+    $placeholders=implode(',',array_fill(0,count($params),'?'));
+    $st=$db->prepare('INSERT IGNORE INTO miner_observations ('.implode(',',$columns).') VALUES ('.$placeholders.')');
+    $st->execute($params);
 }
 /**
  * Salad's full successful group list is authoritative. Remove an old "running"

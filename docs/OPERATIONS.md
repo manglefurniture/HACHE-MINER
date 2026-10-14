@@ -241,3 +241,11 @@ CI verde, autenticación y CSRF probados, tests de seguridad, ausencia de secret
 - Referencia = **mediana histórica de TH/s ÷ USD/h oficial** por GPU. Compara la medición actual con esa eficiencia multiplicada por la **tarifa oficial fresca de Lowest**. Verde >=90%, amarillo 75–90%, rojo <75% de la referencia. Los umbrales se presentan en TH/s ajustados al precio actual. Sin tarifa vigente, sin métrica individual o sin `[pearlhash]` reciente, la GPU conserva un indicador neutral/«Sin medición», sin inventar rojo, amarillo ni verde.
 - **No es rentabilidad neta demostrada**: no se conocen PRL/ingresos netos atribuibles a cada instancia; el índice detecta pérdida de eficiencia relativa al precio histórico. Ni el color verde prueba ganancias ni el rojo prueba pérdidas. No ejecuta POST, reallocate, compra de GPU ni alteración de temporizadores.
 - Si la consulta alcanza su límite de 18,000 muestras, se suspende la clasificación en lugar de ofrecer una tabla engañosa. No se aplica retrospectivamente el precio de hoy a períodos antiguos.
+
+
+## Lectura individual de TH/s desde logs Salad
+
+- El recolector prioriza en una consulta acotada los logs que contienen `TH/s` y después consulta el historial general. Los eventos generales saturados no desplazan las líneas de minería; ambas fuentes comparten el presupuesto de consulta por grupo.
+- La hora efectiva se conserva exactamente desde el log en `miner_observations.metric_observed_at`. Es una columna aditiva, no una tabla nueva. El monitor y el recolector detectan si la migración 008 aún no existe: siguen funcionando y preservan la historia, pero dejan las lecturas actuales como desconocidas hasta que se agregue la columna.
+- Antes de activar la cobertura individual, el propietario ejecuta en MariaDB sobre `hache_miner`: `ALTER TABLE miner_observations ADD COLUMN IF NOT EXISTS metric_observed_at VARCHAR(40) NULL AFTER estimated_cost_usd;`. No se sustituye por `observed_at`, que representa la hora de sondeo y no la hora de la línea de minado.
+- Los consumidores de métricas aceptan SQL UTC y RFC3339, incluidos offsets y fracciones de segundo; se comparan por instante UTC para que la lectura siga visible en tarjetas y totales agregados.

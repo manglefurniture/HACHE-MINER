@@ -124,9 +124,11 @@ assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains(
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
 assert_deploy(str_contains($poll, 'text_log contains~ "TH/s"'), 'Collector must prioritize case-insensitive per-GPU hashrate lines');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
-assert_deploy(str_contains($poll, 'metric_observed_at') && str_contains($monitor, 'metric_observed_at AS metric_at')
+assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
+    && str_contains($monitor, 'miner_metric_timestamp_schema_ready($db)')
+    && str_contains($monitor, '$metricAtColumn')
     && !str_contains($monitor, 'COALESCE(metric_observed_at,observed_at)'),
-    'Monitor must require source time and never present legacy poll time as a verified log time');
+    'Collector and monitor must tolerate a pending metric-time migration without treating poll time as source time');
 $metricTimestampMigration=file_get_contents($root.'/database/008_metric_log_timestamps.sql');
 assert_deploy(str_contains($metricTimestampMigration, 'ADD COLUMN IF NOT EXISTS metric_observed_at'),
     'Metric timestamp migration must be additive and repeatable');
