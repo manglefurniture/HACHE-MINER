@@ -125,10 +125,10 @@ assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nod
 assert_deploy(str_contains($poll, 'log contains~ "0.00 H/s"')
     && str_contains($poll, 'log contains~ "TH/s"')
     && str_contains($poll, 'log !contains~ "TH/s" and log !contains~ "0.00 H/s"')
-    && str_contains($poll, '$start,$end,1,min(2.5')
-    && str_contains($poll, '$start,$end,6,min(9.0')
+    && str_contains($poll, '$start,$end,3,min(4.5')
+    && str_contains($poll, 'max(1,7-(int)$zero[\'requests\']),min(9.0')
     && str_contains($poll, "8-(int)\$zero['requests']-(int)\$metrics['requests']"),
-    'Separate proven Salad filters must prioritize measured zero speed, then TH/s, within eight requests');
+    'Saturated zero logs must paginate first, then active TH/s within the shared eight-request budget');
 
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
