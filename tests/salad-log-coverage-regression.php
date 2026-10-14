@@ -119,6 +119,8 @@ $fourResult=miner_log_collect_windows($cursorFetch,$start,$start+420,8);
 coverage_assert($fourResult['unique']===400 && !$fourResult['partial']
     && $fourResult['requests']<=6,
     '400 rows must be paged without losing older GPU logs');
+coverage_assert(isset($fourResult['elapsed_ms']) && $fourResult['elapsed_ms']>=0,
+    'Coverage diagnostics must expose bounded elapsed milliseconds');
 
 coverage_assert(miner_log_cursor_position('2026-10-13T15:01:01.123456789Z')[1]===123456789,
     'Full nanosecond timestamp precision must be preserved');
@@ -187,7 +189,7 @@ $oldMetric=[
     'resource'=>['labels'=>['instance_id'=>'gpu-a']]
 ];
 $newMetric=[
-    'time'=>'2026-10-13T10:31:00-05:00',
+    'time'=>'2026-10-13T10:31:00.123456789-05:00',
     'text_log'=>'#0 RTX 4070 Ti SUPER 172.00 TH/s 235W 0.68 50% 63C 2535 11043 9 0 0',
     'resource'=>['labels'=>['instance_id'=>'gpu-a']]
 ];
@@ -200,6 +202,8 @@ $latestGPU=miner_monitor_instance_log_metrics([$oldMetric,$newMetric],$nodes,$ac
 coverage_assert(isset($latestGPU['gpu-a'])
     && $latestGPU['gpu-a']['hashrate_ths']===172.0,
     'GPU metric reader must choose newest UTC log when offsets differ');
+coverage_assert($latestGPU['gpu-a']['log_at']===$newMetric['time'],
+    'Individual metric must retain the source log timestamp and its nanoseconds');
 $latestShares=miner_share_instance_counters([$oldMetric,$newMetric],$nodes,$actualNow);
 coverage_assert(isset($latestShares['gpu-a'])
     && $latestShares['gpu-a']['accepted']===9,

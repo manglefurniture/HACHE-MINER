@@ -4,6 +4,17 @@ require_once dirname(__DIR__).'/app/monitor.php';
 function monitor_assert(bool $ok,string $reason):void {
     if(!$ok)throw new RuntimeException($reason);
 }
+monitor_assert(miner_metric_timestamp_is_newer('2026-10-14T02:52:10.000000002Z','2026-10-14T02:52:09.999999999Z'),
+    'A new source log timestamp must create a new metric sample');
+monitor_assert(!miner_metric_timestamp_is_newer('2026-10-14T02:52:09.123456789Z','2026-10-14T02:52:09.123456789Z'),
+    'A repeated overlapping-window log must not duplicate a metric sample');
+monitor_assert(!miner_metric_timestamp_is_newer('not-a-date','2026-10-14T02:52:09Z'),
+    'An invalid source timestamp must never be treated as a metric sample');
+monitor_assert(miner_metric_timestamp_epoch('2026-10-10T02:14:00.123456789+05:00')
+    ===strtotime('2026-10-09 21:14:00 UTC'),
+    'RFC3339 offsets and nanosecond fractions must normalize to the correct instant');
+monitor_assert(miner_metric_timestamp_epoch('not-a-date')===null,
+    'Malformed source timestamps must remain unavailable');
 monitor_assert(miner_monitor_status('running',true,4,4,4)==='listas','all ready');
 monitor_assert(miner_monitor_status('running',true,4,4,2)==='parcial','partial ready');
 monitor_assert(miner_monitor_status('running',true,4,0,0)==='sin_instancias','allocation missing');
@@ -275,6 +286,13 @@ monitor_assert($aggregate['organizations']['hache']['ths']===327.18
 monitor_assert($aggregate['last_at']==='2026-10-09 21:14:00'
     && $aggregate['oldest_at']==='2026-10-09 21:14:00',
     'Summary must report actual effective observation window');
+$rfcMetric=$measuredNode('rfc3339',158.13,'2026-10-09T21:14:00.123456789Z');
+$rfcAggregate=miner_monitor_live_hashrate([[
+ 'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
+ 'instances'=>[$rfcMetric]
+]],$summaryTargets,$summaryNow);
+monitor_assert($rfcAggregate['measured']===1 && $rfcAggregate['ths']===158.13,
+    'RFC3339 source timestamps must remain eligible in the individual and aggregate views');
 $allReported=miner_monitor_live_hashrate([[
  'id'=>11,'organization'=>'hache','project_name'=>'prl-tests','state'=>'running','recent'=>true,
  'instances'=>[$measuredNode('h1',158.13),$measuredNode('h2',169.05)]
@@ -315,6 +333,11 @@ $viewGroup=['recent'=>true,'state'=>'running','instances'=>[
 $shown=miner_monitor_producing_nodes($viewGroup,$viewNow);
 monitor_assert(array_column($shown,'id')===['first','second','third'],
     'Only producing cards should appear, in unchanged input order');
+$rfcCard=$makeViewNode('rfc3339',80.0,'2026-10-10T02:04:30.123456789+00:00');
+monitor_assert(array_column(miner_monitor_producing_nodes([
+    'recent'=>true,'state'=>'running','instances'=>[$rfcCard]
+],$viewNow),'id')===['rfc3339'],
+    'RFC3339 source timestamps must keep valid individual GPU cards visible');
 monitor_assert(count($viewGroup['instances'])===7,
     'Filtering must not mutate the underlying inventory');
 monitor_assert(miner_monitor_producing_nodes([

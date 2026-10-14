@@ -22,12 +22,16 @@ function miner_run_record(string $source,string $status,string $detail): void {
 function miner_logs(string $org,string $project,string $group,string $key): array {
     $url='https://api.salad.com/api/public/organizations/'.rawurlencode($org).'/log-entries';
     $safe=static fn(string $v):string=>str_replace(['"',"'"],'',$v);
-    $query='resource.type = "container" and resource.labels.project_name = "'
+    $baseQuery='resource.type = "container" and resource.labels.project_name = "'
         .$safe($project).'" and resource.labels.container_group_name = "'.$safe($group).'"';
     $end=time();
-    // Salad log collection has page_min_time/page_max_time but no cursor.
-    // A full 100-item page advances by Salad's full-precision page_min_time.
-    $fetch=static function(int $from,string $to,float $remainingSeconds) use($url,$query,$key):array {
+    $start=$end-420;
+    $deadline=microtime(true)+14.0;
+    // Fetch mining telemetry first. Salad caps each response at 100 rows;
+    // unrelated container output must not crowd identified TH/s lines out.
+    // Salad's full-text `log` field supports case-insensitive contains filters.
+    $fetch=static function(string $query) use($url,$key):Closure {
+      return static function(int $from,string $to,float $remainingSeconds) use($url,$query,$key):array {
         $body=[
             'sort_order'=>'desc',
             'start_time'=>gmdate('Y-m-d\\TH:i:s\\Z',$from),
@@ -49,8 +53,59 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
         $data=json_decode($raw,true,512,JSON_THROW_ON_ERROR);
         if(!is_array($data))throw new UnexpectedValueException('Malformed Salad logs response');
         return $data;
+      };
     };
-    return miner_log_collect_windows($fetch,$end-420,$end,8,14.0);
+    $metricError=false;$eventError=false;$metricErrorCode=0;$eventErrorCode=0;
+    $metricStarted=microtime(true);
+    try {
+        $metrics=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "TH/s"'),
+            $start,$end,7,min(11.5,max(0.2,$deadline-microtime(true)-2.5)));
+    } catch(Throwable $e) {
+        // A failed focused query must not suppress normal event collection.
+        $metrics=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
+            'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$metricStarted)*1000)];
+        $metricError=true;
+        if(preg_match('/Logs HTTP (\d{3})/',$e->getMessage(),$m))$metricErrorCode=(int)$m[1];
+    }
+    $requestsLeft=max(1,8-(int)$metrics['requests']);
+    $remaining=$deadline-microtime(true);
+    $eventStarted=microtime(true);
+    try {
+        if($remaining<=0.15)throw new RuntimeException('Log budget exhausted');
+        // Keep the general history disjoint from the focused metric pages.
+        $events=miner_log_collect_windows($fetch($baseQuery.' and log !contains~ "TH/s"'),$start,$end,
+            $requestsLeft,min(90.0,$remaining));
+    } catch(Throwable $e) {
+        $events=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
+            'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$eventStarted)*1000)];
+        $eventError=true;
+        if(preg_match('/Logs HTTP (\d{3})/',$e->getMessage(),$m))$eventErrorCode=(int)$m[1];
+    }
+    $unique=[];
+    foreach([...$metrics['items'],...$events['items']] as $item) {
+        if(!is_array($item))continue;
+        $unique[hash('sha256',json_encode($item,JSON_THROW_ON_ERROR))]=$item;
+    }
+    $items=array_values($unique);
+    usort($items,'miner_log_compare_newest');
+    return [
+        'items'=>$items,
+        'partial'=>$metricError||$eventError||$metrics['partial']||$events['partial'],
+        'metric_partial'=>$metricError||$metrics['partial'],
+        'metric_requests'=>(int)$metrics['requests'],
+        'metric_saturated_windows'=>(int)$metrics['saturated_windows'],
+        'event_partial'=>$eventError||$events['partial'],
+        'requests'=>(int)$metrics['requests']+(int)$events['requests'],
+        'saturated_windows'=>(int)$metrics['saturated_windows']+(int)$events['saturated_windows'],
+        'unique'=>count($items),
+        'metric_events'=>(int)$metrics['unique'],
+        'event_events'=>(int)$events['unique'],
+        'metric_error'=>$metricError,
+        'metric_error_code'=>$metricErrorCode,
+        'event_error'=>$eventError,
+        'event_error_code'=>$eventErrorCode,
+        'elapsed_ms'=>(int)$metrics['elapsed_ms']+(int)$events['elapsed_ms']
+    ];
 }
 function miner_positive_number(mixed $v): ?string {
     return $v!==null?miner_finite_decimal($v,8):null;
@@ -98,9 +153,12 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     // Preserve billing provenance. Never apply today's rate to a sample
     // recorded before official prices or across class/priority/rate changes.
     $officialSchema=miner_salad_prices_ready($db);
-    $prev=$db->prepare($officialSchema
-        ? 'SELECT observed_at,state,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1'
-        : 'SELECT observed_at,state FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
+    $metricTimestampSchema=miner_metric_timestamp_schema_ready($db);
+    $previousColumns=['observed_at','state'];
+    if($metricTimestampSchema)$previousColumns[]='metric_observed_at';
+    if($officialSchema)array_push($previousColumns,'gpu_class_at_observation','priority_at_observation','official_rate_usd_per_hour');
+    $prev=$db->prepare('SELECT '.implode(',',$previousColumns)
+        .' FROM miner_observations WHERE group_id=? AND instance_id=? ORDER BY observed_at DESC LIMIT 1');
     $prev->execute([$groupId,$instanceId]);$old=$prev->fetch();
     $cost=null;
     // Billing estimate counts contiguous Salad running time, including miner startup.
@@ -122,24 +180,33 @@ function miner_instance_save(int $groupId,array $instance,string $now,?string $r
     $prevTs=$old?strtotime((string)($old['observed_at']??'')):false;
     $shareFresh=$shareTs!==false && ($prevTs===false || $shareTs>$prevTs);
     $safeShares=$ready && $started && $state==='running' && $shareFresh ? $shares:null;
+    $metricTs=isset($safeMetric['log_at'])?strtotime((string)$safeMetric['log_at']):false;
+    // Overlapping seven-minute windows must not count the same miner log as a
+    // new historical sample. Keep its original timestamp, not the poll time.
+    $metricFresh=$metricTs!==false && (!$metricTimestampSchema || miner_metric_timestamp_is_newer(
+        (string)$safeMetric['log_at'],
+        !empty($old['metric_observed_at'])?(string)$old['metric_observed_at']:null));
+    if(!$metricFresh)$safeMetric=null;
+    $metricAt=$metricTimestampSchema&&$metricFresh?(string)$safeMetric['log_at']
+        :($old['metric_observed_at']??null);
+    $columns=['group_id','instance_id','observed_at','state','ready','started','hashrate_ths','gpu_model',
+        'watts','accepted_shares','estimated_cost_usd'];
     $params=[
         $groupId,$instanceId,$now,$state,(int)$ready,(int)$started,
         $safeMetric['hashrate_ths']??null,$safeMetric['gpu']??null,$safeMetric['watts']??null,
         $safeShares['accepted']??null,$cost
     ];
+    if($metricTimestampSchema){$columns[]='metric_observed_at';$params[]=$metricAt;}
     if($officialSchema){
         // Rate source is explicit: NULL means missing official API price.
-        $st=$db->prepare('INSERT IGNORE INTO miner_observations
-           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd,gpu_class_at_observation,priority_at_observation,official_rate_usd_per_hour)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $st->execute([...$params,$gpuClass,$priority,$rate]);
-    }else{
-        // Migration pending: preserve observations without pretending legacy rates are official.
-        $st=$db->prepare('INSERT IGNORE INTO miner_observations
-           (group_id,instance_id,observed_at,state,ready,started,hashrate_ths,gpu_model,watts,accepted_shares,estimated_cost_usd)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-        $st->execute($params);
+        array_push($columns,'gpu_class_at_observation','priority_at_observation','official_rate_usd_per_hour');
+        array_push($params,$gpuClass,$priority,$rate);
     }
+    // Additive timestamp migration is optional during rollout; without it,
+    // keep collecting legacy history while leaving source-time metrics unknown.
+    $placeholders=implode(',',array_fill(0,count($params),'?'));
+    $st=$db->prepare('INSERT IGNORE INTO miner_observations ('.implode(',',$columns).') VALUES ('.$placeholders.')');
+    $st->execute($params);
 }
 /**
  * Salad's full successful group list is authoritative. Remove an old "running"
@@ -219,8 +286,11 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                 miner_log_save($g['id'],$logs,$nodes);
                 miner_run_record('salad-logs:'.$org.'/'.$project.'/'.$g['name'],
                     $coverage['partial']?'partial':'ok',
-                    'windows: '.$coverage['requests'].'; unique events: '.$coverage['unique']
-                    .'; saturated: '.$coverage['saturated_windows']);
+                    'TH/s: '.$coverage['metric_events'].'; logs: '.$coverage['event_events']
+                    .'; requests: '.$coverage['requests'].'; saturated: '.$coverage['saturated_windows']
+                    .'; '.min(99999,(int)$coverage['elapsed_ms']).'ms'
+                    .($coverage['metric_error']?'; metric error'.($coverage['metric_error_code']?' HTTP '.$coverage['metric_error_code']:''):'')
+                    .($coverage['event_error']?'; event error'.($coverage['event_error_code']?' HTTP '.$coverage['event_error_code']:''):''));
                 if($coverage['partial']){
                     $failed++;
                     miner_run_record('salad:'.$org.'/'.$project.'/'.$g['name'],'partial',

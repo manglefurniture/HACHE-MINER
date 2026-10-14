@@ -248,9 +248,50 @@ function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=n
         if($metric===null)continue;
         $instanceId=miner_monitor_log_instance($item,$nodes);
         if($instanceId===null || isset($found[$instanceId]))continue;
-        $found[$instanceId]=$metric+['log_at'=>gmdate('Y-m-d H:i:s',$time)];
+        $found[$instanceId]=$metric+['log_at'=>(string)($item['time']??$item['timestamp']??'')];
     }
     return $found;
+}
+
+/** Only a strictly newer verified miner log starts a new persisted metric sample. */
+function miner_metric_timestamp_is_newer(?string $candidate,?string $previous):bool {
+    if($candidate===null||$candidate==='')return false;
+    $candidatePosition=miner_log_cursor_position($candidate);
+    if($candidatePosition===null)return false;
+    if($previous===null||$previous==='')return true;
+    $previousPosition=miner_log_cursor_position($previous);
+    return $previousPosition===null
+        ||$candidatePosition[0]>$previousPosition[0]
+        ||($candidatePosition[0]===$previousPosition[0]
+            && $candidatePosition[1]>$previousPosition[1]);
+}
+
+/** Parse SQL UTC stamps and RFC3339 source-log timestamps into a Unix epoch. */
+function miner_metric_timestamp_epoch(?string $value):?int {
+    if($value===null || trim($value)==='')return null;
+    $value=trim($value);
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/D',$value))return null;
+    try {
+        $date=new DateTimeImmutable($value,new DateTimeZone('UTC'));
+        $errors=DateTimeImmutable::getLastErrors();
+        if(is_array($errors) && ($errors['warning_count']>0 || $errors['error_count']>0))return null;
+        return $date->getTimestamp();
+    } catch(Throwable $e) {
+        return null;
+    }
+}
+
+/** Older installations can run safely before the additive metric-time migration. */
+function miner_metric_timestamp_schema_ready(PDO $db):bool {
+    static $ready=null;
+    if($ready!==null)return $ready;
+    try {
+        $db->query('SELECT metric_observed_at FROM miner_observations LIMIT 0');
+        return $ready=true;
+    } catch(PDOException $e) {
+        if((int)($e->errorInfo[1]??0)===1054)return $ready=false;
+        throw $e;
+    }
 }
 /** Never call an estimated threshold a proven USD profit. */
 function miner_monitor_profit_signal(string $group,string $priority,?array $metric,bool $verifiedPearlhash=false): array {
@@ -316,10 +357,9 @@ function miner_monitor_live_hashrate(array $groups,array $targets,int $now): arr
             $metric=$node['metric']??null;
             if(!is_array($metric))continue;
             $hash=$metric['hashrate_ths']??null;
-            $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)($metric['at']??''),new DateTimeZone('UTC'));
+            $ts=miner_metric_timestamp_epoch(isset($metric['at'])?(string)$metric['at']:null);
             if(!is_numeric($hash) || !is_finite((float)$hash) || (float)$hash<0
-                || (float)$hash>20000 || $date===false)continue;
-            $ts=$date->getTimestamp();
+                || (float)$hash>20000 || $ts===null)continue;
             if($ts>$now+120 || $now-$ts>600)continue;
             if($instances[$resource]['ts']!==null && $instances[$resource]['ts']>=$ts)continue;
             $instances[$resource]['metric']=(float)$hash;
@@ -368,10 +408,9 @@ function miner_monitor_producing_nodes(array $group, ?int $now=null): array {
         $hash=$metric['hashrate_ths']??null;
         if(!is_numeric($hash) || !is_finite((float)$hash)
             || (float)$hash<=0 || (float)$hash>20000)continue;
-        $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',
-            (string)($metric['at']??''),new DateTimeZone('UTC'));
-        if($date===false)continue;
-        $age=$now-$date->getTimestamp();
+        $ts=miner_metric_timestamp_epoch(isset($metric['at'])?(string)$metric['at']:null);
+        if($ts===null)continue;
+        $age=$now-$ts;
         if($age < -120 || $age > 600)continue;
         $nodes[]=$node;
     }
@@ -551,7 +590,11 @@ function miner_monitor_inventory(): array {
       AND summary LIKE '%[pearlhash]%'")->fetchAll(PDO::FETCH_COLUMN);
     $pearlhashGroupIds=array_fill_keys(array_map('intval',$algoGroups),true);
     // Historical samples are per (group,instance), not raw group logs.
-    $samples=$db->query("SELECT group_id,instance_id,observed_at,hashrate_ths,gpu_model,watts
+    $metricTimestampSchema=miner_metric_timestamp_schema_ready($db);
+    $metricAtColumn=$metricTimestampSchema?'metric_observed_at':'NULL';
+    $samples=$db->query("SELECT group_id,instance_id,observed_at,
+             $metricAtColumn AS metric_at,
+             hashrate_ths,gpu_model,watts
          FROM miner_observations
          WHERE observed_at>=UTC_TIMESTAMP()-INTERVAL 3 HOUR
            AND hashrate_ths IS NOT NULL
@@ -595,15 +638,16 @@ function miner_monitor_inventory(): array {
             $node['history']=array_map(static fn($r)=>(float)$r['hashrate_ths'],$rows);
             $node['chart']=miner_monitor_sparkline($node['history']);
             $latest=$rows===[]?null:$rows[count($rows)-1];
-            $observedTime=$latest===null?false:DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$latest['observed_at'],new DateTimeZone('UTC'));
-            $metricFresh=$recent && $node['ready'] && $observedTime!==false
-                && $now-$observedTime->getTimestamp()<=600
-                && $now-$observedTime->getTimestamp()>=-120;
+            $metricTs=$latest===null?null:miner_metric_timestamp_epoch(
+                isset($latest['metric_at'])?(string)$latest['metric_at']:null);
+            $metricFresh=$recent && $node['ready'] && $metricTs!==null
+                && $now-$metricTs<=600
+                && $now-$metricTs>=-120;
             $node['metric']=$metricFresh?[
                 'hashrate_ths'=>(float)$latest['hashrate_ths'],
                 'gpu_model'=>(string)($latest['gpu_model']??''),
                 'watts'=>$latest['watts']===null?null:(float)$latest['watts'],
-                'at'=>$latest['observed_at']
+                'at'=>$latest['metric_at']
             ]:null;
             $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric'],$group['pearlhash_verified']);
             if(in_array(strtolower((string)$group['priority']),['lowest','batch'],true)) {

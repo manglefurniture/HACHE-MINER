@@ -65,10 +65,14 @@ idmap_assert($partial['status']==='partial'
     && $partial['counts']['measured']===2
     && $partial['counts']['partial']===1,
     'Bounded API pages must retain measured IDs while marking incomplete coverage');
+$eventsPartial=miner_idmap_diagnostic($nodes,[$known,$other],
+    ['requests'=>3,'partial'=>true,'metric_partial'=>false,'metric_requests'=>1],$now);
+idmap_assert($eventsPartial['status']==='ok' && $eventsPartial['counts']['requests']===1,
+    'Partial general event history must not label complete TH/s telemetry as partial');
 $poll=file_get_contents(__DIR__.'/../bin/poll.php');
 idmap_assert(str_contains($poll,'miner_idmap_diagnostic($nodes,$logs,$coverage)')
     && str_contains($poll,"miner_run_record('salad-idmap:'"),
-    'Collector must compare the two existing endpoint payloads without additional requests');
+    'Identity diagnostics must consume the fetched instance and log payloads without their own requests');
 $admin=file_get_contents(__DIR__.'/../app/diagnostics.php');
 idmap_assert(str_contains($admin,"miner_log_sync_source_key('salad-idmap:'")
     && !str_contains($admin,'curl_init('),

@@ -456,6 +456,9 @@ foreach($monitorData['groups'] as $group) {
  <strong><?= $m!==null?miner_h(number_format($m['hashrate_ths'],2,'.','')):'—' ?></strong>
  <span>TH/s</span>
 </div>
+<?php if($m!==null): $metricAt=(string)$m['at']; $metricAge=max(0,time()-(new DateTimeImmutable($metricAt,new DateTimeZone('UTC')))->getTimestamp()); ?>
+<p class="monitor-margin">Lectura del log: <?= miner_h($metricAt) ?> · hace <?= $metricAge<60?'menos de 1 min':($metricAge<3600?intdiv($metricAge,60).' min':intdiv($metricAge,3600).' h '.intdiv($metricAge%3600,60).' min') ?></p>
+<?php endif; ?>
 <?php if($signal['floor']!==null): ?>
 <p class="monitor-margin"><?= ($signal['kind']??'')==='lowest_relative'?'Umbral de eficiencia relativa Lowest':'Umbral inferior orientativo' ?>: <?= miner_h(number_format($signal['floor'],2,'.','')) ?> TH/s · Margen: <strong><?= $signal['margin']>0?'+':'' ?><?= miner_h(number_format($signal['margin'],2,'.','')) ?> TH/s</strong>
 <?php if(($signal['kind']??'')==='lowest_relative'): ?><small> · <?= (int)$signal['samples'] ?> mediciones históricas · $<?= miner_h(number_format($signal['rate'],4,'.',',')) ?> USD/h oficial · sin reasignación automática</small><?php endif; ?></p>
@@ -653,14 +656,17 @@ foreach($monitorData['groups'] as $group) {
 <section class="card"><h2>Diagnóstico temporal · identidad de instancias Salad</h2>
 <p class="muted">Cada ciclo compara los ID de las instancias actuales y los ID de los logs recibidos. No hace llamadas adicionales a Salad, no muestra identificadores ni claves y no modifica las reglas de minería. Conteos por grupo: n=instancias, ready=listas, gpu=filas GPU, mapped=filas vinculadas, unknown=ID sin coincidencia, noid=sin identificación, old=antiguas, ids=instancias distintas vinculadas, ths=listas medidas, missing=listas sin TH/s, pages=páginas consultadas, partial=cobertura incompleta, apierr=fallo de logs.</p>
 <?php if(empty($collectorDiag['idmap'])): ?><p class="muted">Aún no hay grupos recientes para diagnosticar.</p><?php else: ?>
-<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Último ciclo UTC</th><th>Estado</th><th>Comparación de ID y TH/s</th></tr></thead><tbody>
+<div class="tablewrap mobile-stack"><table><thead><tr><th>Organización</th><th>Grupo</th><th>Último sondeo UTC</th><th>GPU listas</th><th>Con TH/s reciente</th><th>Cobertura</th><th>Paginación / causa</th></tr></thead><tbody>
 <?php foreach($collectorDiag['idmap'] as $d): ?><tr>
 <td data-label="Organización"><?= miner_h(strtoupper((string)$d['organization'])) ?></td>
 <td data-label="Grupo"><?= miner_h((string)$d['group_name']) ?></td>
-<td data-label="Último ciclo UTC"><?= miner_h((string)($d['observed_at']??'Sin diagnóstico')) ?></td>
-<td data-label="Estado"><?= miner_h((string)$d['status']) ?></td>
-<td data-label="Comparación"><?= miner_h((string)$d['detail']) ?></td>
+<td data-label="Último sondeo UTC"><?= miner_h((string)($d['observed_at']??'Sin diagnóstico')) ?></td>
+<td data-label="GPU listas"><?= $d['active']===null?'—':(int)$d['active'] ?></td>
+<td data-label="Con TH/s reciente"><?= $d['measured']===null?'—':(int)$d['measured'] ?> <small><?= $d['missing']===null?'· sin diagnóstico':'· faltan '.(int)$d['missing'] ?></small></td>
+<td data-label="Cobertura"><?= $d['coverage_percent']===null?'—':(int)$d['coverage_percent'].'%' ?></td>
+<td data-label="Paginación / causa"><?= miner_h((string)$d['metric_label']) ?><small><?= $d['requests']===null?'Sin conteo':(int)$d['requests'].' consultas métricas' ?><?= !empty($d['event_pagination_partial'])?' · historial general parcial':'' ?> · <?= miner_h((string)$d['reason']) ?></small></td>
 </tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
+<p class="muted">«GPU listas» exige estado running + ready + started. «Con TH/s reciente» cuenta sólo mediciones asociadas al ID actual. Una cobertura menor no se convierte en 0 TH/s ni activa una reasignación.</p>
 </section>
 <section class="card"><h2>Advertencias recientes (24 h)</h2>
 <?php if(!$collectorDiag['warnings']): ?><p class="muted">Sin advertencias de logs registradas durante las últimas 24 horas. No implica ausencia de fallos fuera de la cobertura.</p><?php else: ?>
