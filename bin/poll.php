@@ -62,10 +62,10 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     $zeroErrorCode=0;$metricErrorCode=0;$eventErrorCode=0;
     $zeroStarted=microtime(true);
     try {
-        // One dedicated page: a verified GPU at exactly zero speed must not
-        // vanish behind unrelated events in a busy group.
+        // Prioritize zero-speed logs and paginate up to three pages only when
+        // saturated; the active TH/s search uses the leftover request budget.
         $zero=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "0.00 H/s"'),
-            $start,$end,1,min(2.5,max(0.2,$deadline-microtime(true)-11.0)));
+            $start,$end,3,min(4.5,max(0.2,$deadline-microtime(true)-8.0)));
     } catch(Throwable $e) {
         $zero=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
             'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$zeroStarted)*1000)];
@@ -75,7 +75,7 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     $metricStarted=microtime(true);
     try {
         $metrics=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "TH/s"'),
-            $start,$end,6,min(9.0,max(0.2,$deadline-microtime(true)-2.5)));
+            $start,$end,max(1,7-(int)$zero['requests']),min(9.0,max(0.2,$deadline-microtime(true)-2.5)));
     } catch(Throwable $e) {
         $metrics=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
             'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$metricStarted)*1000)];
