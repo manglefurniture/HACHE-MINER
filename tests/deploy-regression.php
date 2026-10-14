@@ -122,7 +122,7 @@ assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'C
 assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-node--red') && str_contains($css, '.monitor-node--yellow') && str_contains($css, '.monitor-node--green'), 'Card and traffic-light styles must exist');
 assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
-assert_deploy(str_contains($poll, '\$metricFilter=\'(log contains~ "TH/s" or log contains~ "0.00 H/s")\'')
+assert_deploy(str_contains($poll, "\$metricFilter='(log contains~ \"TH/s\" or log contains~ \"0.00 H/s\")'")
     && str_contains($poll, "\$fetch(\$baseQuery.' and '.\$metricFilter)")
     && str_contains($poll, "\$fetch(\$baseQuery.' and not '.\$metricFilter)")
     && str_contains($poll, '$start,$end,7,min(11.5')
