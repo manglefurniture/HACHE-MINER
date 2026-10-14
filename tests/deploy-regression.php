@@ -134,7 +134,9 @@ assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
 $metricTimestampMigration=file_get_contents($root.'/database/008_metric_log_timestamps.sql');
 assert_deploy(str_contains($metricTimestampMigration, 'ADD COLUMN IF NOT EXISTS metric_observed_at'),
     'Metric timestamp migration must be additive and repeatable');
-assert_deploy(str_contains($poll, "hashrate_ths,gpu_model,watts"), 'Per-instance observations must store actual metrics');
+assert_deploy(str_contains($poll, "'hashrate_ths','gpu_model'")
+    && str_contains($poll, "'watts','accepted_shares','estimated_cost_usd'"),
+    'Per-instance observations must store actual metrics');
 assert_deploy(str_contains($monitor, 'miner_monitor_log_instance('), 'Multi-replica GPU log IDs must be verified, not guessed');
 assert_deploy(str_contains($monitor, 'INTERVAL 8 HOUR'), 'Old deleted groups must be hidden but not deleted');
 assert_deploy(!str_contains($monitor, 'DELETE FROM group_state'), 'Filter-only retention must preserve financial and diagnostic history');
