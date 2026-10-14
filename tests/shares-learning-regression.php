@@ -123,7 +123,7 @@ shcheck(miner_share_analyze([$quantus],[],$now)['devices']===[], 'Other algorith
 
 $source=file_get_contents(dirname(__DIR__).'/bin/poll.php');
 shcheck(str_contains($source,'$shareTs>$prevTs'),'Repeated old share log cannot seed a new poll');
-shcheck(str_contains($source,'accepted_shares,estimated_cost_usd') && str_contains($source,'miner_share_instance_counters($logs,$nodes)'),'Poller does not persist shares');
+shcheck(str_contains($source,"'accepted_shares','estimated_cost_usd'") && str_contains($source,'miner_share_instance_counters($logs,$nodes)'),'Poller does not persist shares');
 shcheck(!str_contains(file_get_contents(dirname(__DIR__).'/app/shares.php'),'reallocate_instance('),'Learning signals must not trigger reallocation');
 $reportSource=file_get_contents(dirname(__DIR__).'/app/shares.php');
 shcheck(str_contains($reportSource,'AS share_lines') &&
