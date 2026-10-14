@@ -30,9 +30,9 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     // Fetch mining telemetry first. Salad caps each response at 100 rows;
     // unrelated container output must not crowd identified TH/s lines out.
     // Salad's full-text `log` field supports case-insensitive contains filters.
-    // Search measured zero production alongside TH/s, not in overflow-prone general logs.
-    // Parenthesized OR / NOT are supported by Salad's log query language.
-    $metricFilter='(log contains~ "TH/s" or log contains~ "0.00 H/s")';
+    // Salad's accepted contains~ / !contains~ terms are intentionally used
+    // without a Boolean OR: the combined query was not verified in production.
+    // Independently prioritize stopped GPU telemetry even under log saturation.
     $fetch=static function(string $query) use($url,$key):Closure {
       return static function(int $from,string $to,float $remainingSeconds) use($url,$query,$key):array {
         $body=[
@@ -58,25 +58,39 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
         return $data;
       };
     };
-    $metricError=false;$eventError=false;$metricErrorCode=0;$eventErrorCode=0;
+    $zeroError=false;$metricError=false;$eventError=false;
+    $zeroErrorCode=0;$metricErrorCode=0;$eventErrorCode=0;
+    $zeroStarted=microtime(true);
+    try {
+        // Prioritize zero-speed logs and paginate up to three pages only when
+        // saturated; the active TH/s search uses the leftover request budget.
+        $zero=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "0.00 H/s"'),
+            $start,$end,3,min(4.5,max(0.2,$deadline-microtime(true)-8.0)));
+    } catch(Throwable $e) {
+        $zero=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
+            'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$zeroStarted)*1000)];
+        $zeroError=true;
+        if(preg_match('/Logs HTTP (\d{3})/',$e->getMessage(),$m))$zeroErrorCode=(int)$m[1];
+    }
     $metricStarted=microtime(true);
     try {
-        $metrics=miner_log_collect_windows($fetch($baseQuery.' and '.$metricFilter),
-            $start,$end,7,min(11.5,max(0.2,$deadline-microtime(true)-2.5)));
+        $metrics=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "TH/s"'),
+            $start,$end,max(1,7-(int)$zero['requests']),min(9.0,max(0.2,$deadline-microtime(true)-2.5)));
     } catch(Throwable $e) {
-        // A failed focused query must not suppress normal event collection.
         $metrics=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
             'unique'=>0,'elapsed_ms'=>(int)round((microtime(true)-$metricStarted)*1000)];
         $metricError=true;
         if(preg_match('/Logs HTTP (\d{3})/',$e->getMessage(),$m))$metricErrorCode=(int)$m[1];
     }
-    $requestsLeft=max(1,8-(int)$metrics['requests']);
+    $requestsLeft=max(1,8-(int)$zero['requests']-(int)$metrics['requests']);
     $remaining=$deadline-microtime(true);
     $eventStarted=microtime(true);
     try {
         if($remaining<=0.15)throw new RuntimeException('Log budget exhausted');
-        // Keep the general history disjoint from the focused metric pages.
-        $events=miner_log_collect_windows($fetch($baseQuery.' and not '.$metricFilter),$start,$end,
+        // Simple complementary negative filters are supported by Salad;
+        // no parenthesized OR or NOT query grammar is assumed.
+        $events=miner_log_collect_windows($fetch($baseQuery
+            .' and log !contains~ "TH/s" and log !contains~ "0.00 H/s"'),$start,$end,
             $requestsLeft,min(90.0,$remaining));
     } catch(Throwable $e) {
         $events=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
@@ -85,7 +99,7 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
         if(preg_match('/Logs HTTP (\d{3})/',$e->getMessage(),$m))$eventErrorCode=(int)$m[1];
     }
     $unique=[];
-    foreach([...$metrics['items'],...$events['items']] as $item) {
+    foreach([...$zero['items'],...$metrics['items'],...$events['items']] as $item) {
         if(!is_array($item))continue;
         $unique[hash('sha256',json_encode($item,JSON_THROW_ON_ERROR))]=$item;
     }
@@ -93,21 +107,21 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     usort($items,'miner_log_compare_newest');
     return [
         'items'=>$items,
-        'partial'=>$metricError||$eventError||$metrics['partial']||$events['partial'],
-        'metric_partial'=>$metricError||$metrics['partial'],
-        'metric_requests'=>(int)$metrics['requests'],
-        'metric_saturated_windows'=>(int)$metrics['saturated_windows'],
+        'partial'=>$zeroError||$metricError||$eventError||$zero['partial']||$metrics['partial']||$events['partial'],
+        'metric_partial'=>$zeroError||$metricError||$zero['partial']||$metrics['partial'],
+        'metric_requests'=>(int)$zero['requests']+(int)$metrics['requests'],
+        'metric_saturated_windows'=>(int)$zero['saturated_windows']+(int)$metrics['saturated_windows'],
         'event_partial'=>$eventError||$events['partial'],
-        'requests'=>(int)$metrics['requests']+(int)$events['requests'],
-        'saturated_windows'=>(int)$metrics['saturated_windows']+(int)$events['saturated_windows'],
+        'requests'=>(int)$zero['requests']+(int)$metrics['requests']+(int)$events['requests'],
+        'saturated_windows'=>(int)$zero['saturated_windows']+(int)$metrics['saturated_windows']+(int)$events['saturated_windows'],
         'unique'=>count($items),
-        'metric_events'=>(int)$metrics['unique'],
+        'metric_events'=>(int)$zero['unique']+(int)$metrics['unique'],
         'event_events'=>(int)$events['unique'],
-        'metric_error'=>$metricError,
-        'metric_error_code'=>$metricErrorCode,
+        'metric_error'=>$zeroError||$metricError,
+        'metric_error_code'=>$zeroErrorCode?:$metricErrorCode,
         'event_error'=>$eventError,
         'event_error_code'=>$eventErrorCode,
-        'elapsed_ms'=>(int)$metrics['elapsed_ms']+(int)$events['elapsed_ms']
+        'elapsed_ms'=>(int)$zero['elapsed_ms']+(int)$metrics['elapsed_ms']+(int)$events['elapsed_ms']
     ];
 }
 function miner_positive_number(mixed $v): ?string {
