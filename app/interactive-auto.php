@@ -11,10 +11,12 @@ require_once __DIR__.'/monitor.php';
 function miner_auto_low_prl_metric(array $rows, int $now): ?array {
     return miner_auto_prl_metric($rows,$now,'low');
 }
-/** Low keeps its original <=125 TH/s rule. Medium is strictly <130 TH/s. */
+/** Low: 3 consecutive <=125 TH/s; Medium: 2 consecutive strictly <145 TH/s. */
 function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array {
-    if(!in_array($priority,['low','medium'],true) || count($rows)<3)return null;
-    $rows=array_slice($rows,0,3);
+    if(!in_array($priority,['low','medium'],true))return null;
+    $requiredSamples=$priority==='medium' ? 2 : 3;
+    if(count($rows)<$requiredSamples)return null;
+    $rows=array_slice($rows,0,$requiredSamples);
     $timestamps=[];$values=[];
     foreach($rows as $row) {
         $stamp=(string)($row['observed_at']??'');
@@ -24,7 +26,7 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
         $samplePriority=strtolower(trim((string)($row['priority_at_observation']??'')));
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
           || (float)$hash<0 || ($priority==='low' && (float)$hash>125.0)
-          || ($priority==='medium' && (float)$hash>=130.0)
+          || ($priority==='medium' && (float)$hash>=145.0)
           || ($priority==='medium' && $samplePriority!=='medium')
           || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
           || !str_contains($gpu,'4070 TI SUPER')
@@ -32,14 +34,16 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
           || strtolower((string)($row['state']??''))!=='running')return null;
         $timestamps[]=$parsed->getTimestamp();$values[]=(float)$hash;
     }
-    // Three distinct observations ~5m apart; skip ambiguous gaps, clock drift
-    // and samples too old. Never infer sustained mining from a single log.
+    // Both priorities require distinct observations ~5m apart, with a recent
+    // latest reading. Preserve Low's three-sample duration requirement.
+    $span=$timestamps[0]-$timestamps[$requiredSamples-1];
     if($timestamps[0]>$now+120 || $now-$timestamps[0]>480
        || $timestamps[0]-$timestamps[1]<240 || $timestamps[0]-$timestamps[1]>450
-       || $timestamps[1]-$timestamps[2]<240 || $timestamps[1]-$timestamps[2]>450
-       || $timestamps[0]-$timestamps[2]<540 || $timestamps[0]-$timestamps[2]>900)return null;
-    return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum($values)/3,2),
-      'span_seconds'=>$timestamps[0]-$timestamps[2]];
+       || ($priority==='low' && (
+          $timestamps[1]-$timestamps[2]<240 || $timestamps[1]-$timestamps[2]>450
+          || $span<540 || $span>900)))return null;
+    return ['hashrate_ths'=>$values[0],'average_ths'=>round(array_sum($values)/$requiredSamples,2),
+      'span_seconds'=>$span];
 }
 /** The registered/enabled target controls organization membership.
  * Both Low and Medium are global. HACHE's legacy poller is alert-only.
@@ -118,7 +122,7 @@ function miner_auto_execute(array $candidate): string {
            || $liveTarget['group_name']!==$g['group_name']
            || !miner_auto_policy_group((string)$g['organization'],(string)$g['priority']))
             return 'outside_policy';
-        // Reassess all three samples + verified pearlhash immediately after lock.
+        // Reassess the required consecutive samples + verified pearlhash after lock.
         $candidates=miner_auto_candidates(time());
         $matching=array_values(array_filter($candidates,static fn($c)=>$c['fingerprint']===$fp));
         if(count($matching)!==1)return 'no_longer_eligible';
