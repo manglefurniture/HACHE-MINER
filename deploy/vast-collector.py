@@ -3,7 +3,10 @@
 import hashlib,hmac,json,os,re,subprocess,time,uuid,urllib.request
 URL=os.environ['HACHE_VAST_INGEST_URL']; KEY=os.environ['HACHE_VAST_INGEST_KEY'].encode(); INSTANCE=os.environ['HACHE_VAST_INSTANCE_ID']; LOG=os.environ.get('HACHE_SRBMINER_LOG','/var/log/prl-miner.log')
 text=subprocess.check_output(['tail','-n','80',LOG],text=True,stderr=subprocess.DEVNULL)
-rows=re.findall(r'#(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+TH/s\s+(\d+(?:\.\d+)?)W.*?\s+(\d+)C.*?\s+(\d+)\s+(\d+)\s+(\d+)',text)
+# SRBMiner decorates individual cells with ANSI SGR sequences.  Remove those
+# sequences first; otherwise a real #0/#1 statistics row is not parseable.
+text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+rows=re.findall(r'#(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+TH/s\s+(\d+(?:\.\d+)?)W.*?\s+(\d+)C\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)',text)
 if not rows: raise SystemExit('no verified SRBMiner GPU rows')
 gpu=[]; acc=rej=0
 for i,model,h,w,t,a,r,hw in rows[-2:]:
