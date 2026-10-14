@@ -122,7 +122,9 @@ assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'C
 assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-node--red') && str_contains($css, '.monitor-node--yellow') && str_contains($css, '.monitor-node--green'), 'Card and traffic-light styles must exist');
 assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
-assert_deploy(str_contains($poll, 'text_log contains~ "TH/s"'), 'Collector must prioritize case-insensitive per-GPU hashrate lines');
+assert_deploy(str_contains($poll, 'log contains~ "TH/s"')
+    && str_contains($poll, 'log !contains~ "TH/s"'),
+    'Focused metrics and general history must use disjoint Salad log queries');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
 assert_deploy(str_contains($poll, 'miner_metric_timestamp_schema_ready($db)')
     && str_contains($monitor, 'miner_metric_timestamp_schema_ready($db)')
