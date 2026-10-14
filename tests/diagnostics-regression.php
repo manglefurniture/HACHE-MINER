@@ -13,6 +13,10 @@ diagnostics_assert($summary['pagination_partial'] && $summary['requests']===2
 $complete=miner_idmap_summary('n=4 ready=4 gpu=4 mapped=4 unknown=0 noid=0 old=0 ids=4 ths=4 missing=0 pages=1 partial=0 apierr=0');
 diagnostics_assert($complete['coverage_percent']===100 && !$complete['pagination_partial'],
     'Complete identity-mapped coverage must report 100 percent');
+$noDiagnostic=miner_idmap_summary('Sin diagnóstico todavía');
+diagnostics_assert($noDiagnostic['active']===null && $noDiagnostic['measured']===null
+    && $noDiagnostic['metric_label']==='Sin diagnóstico',
+    'Missing id-map rows must stay unknown, not become zero active GPUs');
 $now=strtotime('2026-10-12 12:00:00 UTC');
 $fresh=miner_rate_catalog_health(['status'=>'ok'],['observed_at'=>'2026-10-12 11:30:00','entries'=>8],$now);
 diagnostics_assert($fresh['status']==='tarifas_recientes' && $fresh['entries']===8,'Fresh official catalog must remain usable');

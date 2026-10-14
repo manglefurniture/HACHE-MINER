@@ -661,10 +661,10 @@ foreach($monitorData['groups'] as $group) {
 <td data-label="Organización"><?= miner_h(strtoupper((string)$d['organization'])) ?></td>
 <td data-label="Grupo"><?= miner_h((string)$d['group_name']) ?></td>
 <td data-label="Último sondeo UTC"><?= miner_h((string)($d['observed_at']??'Sin diagnóstico')) ?></td>
-<td data-label="GPU listas"><?= (int)$d['active'] ?></td>
-<td data-label="Con TH/s reciente"><?= (int)$d['measured'] ?> <small>· faltan <?= (int)$d['missing'] ?></small></td>
+<td data-label="GPU listas"><?= $d['active']===null?'—':(int)$d['active'] ?></td>
+<td data-label="Con TH/s reciente"><?= $d['measured']===null?'—':(int)$d['measured'] ?> <small><?= $d['missing']===null?'· sin diagnóstico':'· faltan '.(int)$d['missing'] ?></small></td>
 <td data-label="Cobertura"><?= $d['coverage_percent']===null?'—':(int)$d['coverage_percent'].'%' ?></td>
-<td data-label="Paginación / causa"><?= miner_h((string)$d['metric_label']) ?><small><?= (int)$d['requests'] ?> consultas métricas<?= !empty($d['event_pagination_partial'])?' · historial general parcial':'' ?> · <?= miner_h((string)$d['reason']) ?></small></td>
+<td data-label="Paginación / causa"><?= miner_h((string)$d['metric_label']) ?><small><?= $d['requests']===null?'Sin conteo':(int)$d['requests'].' consultas métricas' ?><?= !empty($d['event_pagination_partial'])?' · historial general parcial':'' ?> · <?= miner_h((string)$d['reason']) ?></small></td>
 </tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
 <p class="muted">«GPU listas» exige estado running + ready + started. «Con TH/s reciente» cuenta sólo mediciones asociadas al ID actual. Una cobertura menor no se convierte en 0 TH/s ni activa una reasignación.</p>
 </section>

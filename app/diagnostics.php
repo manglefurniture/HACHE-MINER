@@ -38,6 +38,15 @@ function miner_idmap_summary(string $detail):array {
         $detail,$matches,PREG_SET_ORDER);
     $counts=[];
     foreach($matches as $match)$counts[$match[1]]=(int)$match[2];
+    if(!array_key_exists('ready',$counts)||!array_key_exists('ths',$counts)
+        ||!array_key_exists('missing',$counts)) {
+        return [
+            'active'=>null,'measured'=>null,'missing'=>null,'coverage_percent'=>null,
+            'requests'=>null,'pagination_partial'=>null,'metric_label'=>'Sin diagnóstico',
+            'event_pagination_partial'=>false,
+            'reason'=>'No hay una muestra de diagnóstico guardada para este grupo'
+        ];
+    }
     $ready=$counts['ready']??0;$measured=$counts['ths']??0;
     $reason=match(true) {
         ($counts['apierr']??0)>0=>'Error consultando los logs de Salad',
