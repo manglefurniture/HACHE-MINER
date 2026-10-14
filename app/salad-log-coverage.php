@@ -50,7 +50,8 @@ function miner_log_collect_windows(callable $fetch,int $startUtc,int $endUtc,
         || $timeBudgetSeconds<=0 || $timeBudgetSeconds>90)
         throw new InvalidArgumentException('Invalid Salad log coverage limits');
 
-    $deadline=microtime(true)+$timeBudgetSeconds;
+    $startedAt=microtime(true);
+    $deadline=$startedAt+$timeBudgetSeconds;
     $cursor=gmdate('Y-m-d\\TH:i:s\\Z',$endUtc);
     $cursorPos=[$endUtc,0];
     $unique=[];$requests=0;$partial=false;$saturated=0;
@@ -106,5 +107,6 @@ function miner_log_collect_windows(callable $fetch,int $startUtc,int $endUtc,
     $result=array_values($unique);
     usort($result,'miner_log_compare_newest');
     return ['items'=>$result,'partial'=>$partial,'requests'=>$requests,
-        'saturated_windows'=>$saturated,'unique'=>count($result)];
+        'saturated_windows'=>$saturated,'unique'=>count($result),
+        'elapsed_ms'=>(int)round((microtime(true)-$startedAt)*1000)];
 }

@@ -122,6 +122,14 @@ assert_deploy(str_contains($dashboard, 'miner_reallocation_fingerprint($g,'), 'C
 assert_deploy(str_contains($css, '.monitor-entry{') && str_contains($css, '.monitor-node--red') && str_contains($css, '.monitor-node--yellow') && str_contains($css, '.monitor-node--green'), 'Card and traffic-light styles must exist');
 assert_deploy(str_contains($dashboard, 'class="monitor-trend"') && str_contains($dashboard,'<polyline points='), 'Each observed GPU must support a genuine trend line');
 assert_deploy(str_contains($poll, 'miner_monitor_instance_log_metrics($logs,$nodes)'), 'Collector must attribute metrics to known instance IDs');
+assert_deploy(str_contains($poll, 'text_log contains~ "TH/s"'), 'Collector must prioritize case-insensitive per-GPU hashrate lines');
+assert_deploy(str_contains($poll, 'miner_metric_timestamp_is_newer('), 'Overlapping Salad windows must not duplicate metric observations');
+assert_deploy(str_contains($poll, 'metric_observed_at') && str_contains($monitor, 'metric_observed_at AS metric_at')
+    && !str_contains($monitor, 'COALESCE(metric_observed_at,observed_at)'),
+    'Monitor must require source time and never present legacy poll time as a verified log time');
+$metricTimestampMigration=file_get_contents($root.'/database/008_metric_log_timestamps.sql');
+assert_deploy(str_contains($metricTimestampMigration, 'ADD COLUMN IF NOT EXISTS metric_observed_at'),
+    'Metric timestamp migration must be additive and repeatable');
 assert_deploy(str_contains($poll, "hashrate_ths,gpu_model,watts"), 'Per-instance observations must store actual metrics');
 assert_deploy(str_contains($monitor, 'miner_monitor_log_instance('), 'Multi-replica GPU log IDs must be verified, not guessed');
 assert_deploy(str_contains($monitor, 'INTERVAL 8 HOUR'), 'Old deleted groups must be hidden but not deleted');

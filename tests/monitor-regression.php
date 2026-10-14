@@ -4,6 +4,12 @@ require_once dirname(__DIR__).'/app/monitor.php';
 function monitor_assert(bool $ok,string $reason):void {
     if(!$ok)throw new RuntimeException($reason);
 }
+monitor_assert(miner_metric_timestamp_is_newer('2026-10-14T02:52:10.000000002Z','2026-10-14T02:52:09.999999999Z'),
+    'A new source log timestamp must create a new metric sample');
+monitor_assert(!miner_metric_timestamp_is_newer('2026-10-14T02:52:09.123456789Z','2026-10-14T02:52:09.123456789Z'),
+    'A repeated overlapping-window log must not duplicate a metric sample');
+monitor_assert(!miner_metric_timestamp_is_newer('not-a-date','2026-10-14T02:52:09Z'),
+    'An invalid source timestamp must never be treated as a metric sample');
 monitor_assert(miner_monitor_status('running',true,4,4,4)==='listas','all ready');
 monitor_assert(miner_monitor_status('running',true,4,4,2)==='parcial','partial ready');
 monitor_assert(miner_monitor_status('running',true,4,0,0)==='sin_instancias','allocation missing');

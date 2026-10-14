@@ -248,9 +248,22 @@ function miner_monitor_instance_log_metrics(array $logs,array $nodes,?int $now=n
         if($metric===null)continue;
         $instanceId=miner_monitor_log_instance($item,$nodes);
         if($instanceId===null || isset($found[$instanceId]))continue;
-        $found[$instanceId]=$metric+['log_at'=>gmdate('Y-m-d H:i:s',$time)];
+        $found[$instanceId]=$metric+['log_at'=>(string)($item['time']??$item['timestamp']??'')];
     }
     return $found;
+}
+
+/** Only a strictly newer verified miner log starts a new persisted metric sample. */
+function miner_metric_timestamp_is_newer(?string $candidate,?string $previous):bool {
+    if($candidate===null||$candidate==='')return false;
+    $candidatePosition=miner_log_cursor_position($candidate);
+    if($candidatePosition===null)return false;
+    if($previous===null||$previous==='')return true;
+    $previousPosition=miner_log_cursor_position($previous);
+    return $previousPosition===null
+        ||$candidatePosition[0]>$previousPosition[0]
+        ||($candidatePosition[0]===$previousPosition[0]
+            && $candidatePosition[1]>$previousPosition[1]);
 }
 /** Never call an estimated threshold a proven USD profit. */
 function miner_monitor_profit_signal(string $group,string $priority,?array $metric,bool $verifiedPearlhash=false): array {
@@ -551,7 +564,9 @@ function miner_monitor_inventory(): array {
       AND summary LIKE '%[pearlhash]%'")->fetchAll(PDO::FETCH_COLUMN);
     $pearlhashGroupIds=array_fill_keys(array_map('intval',$algoGroups),true);
     // Historical samples are per (group,instance), not raw group logs.
-    $samples=$db->query("SELECT group_id,instance_id,observed_at,hashrate_ths,gpu_model,watts
+    $samples=$db->query("SELECT group_id,instance_id,observed_at,
+             metric_observed_at AS metric_at,
+             hashrate_ths,gpu_model,watts
          FROM miner_observations
          WHERE observed_at>=UTC_TIMESTAMP()-INTERVAL 3 HOUR
            AND hashrate_ths IS NOT NULL
@@ -595,7 +610,10 @@ function miner_monitor_inventory(): array {
             $node['history']=array_map(static fn($r)=>(float)$r['hashrate_ths'],$rows);
             $node['chart']=miner_monitor_sparkline($node['history']);
             $latest=$rows===[]?null:$rows[count($rows)-1];
-            $observedTime=$latest===null?false:DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',(string)$latest['observed_at'],new DateTimeZone('UTC'));
+            try {
+                $observedTime=$latest===null||empty($latest['metric_at'])?false:new DateTimeImmutable(
+                    (string)$latest['metric_at'],new DateTimeZone('UTC'));
+            } catch(Throwable $e) {$observedTime=false;}
             $metricFresh=$recent && $node['ready'] && $observedTime!==false
                 && $now-$observedTime->getTimestamp()<=600
                 && $now-$observedTime->getTimestamp()>=-120;
@@ -603,7 +621,7 @@ function miner_monitor_inventory(): array {
                 'hashrate_ths'=>(float)$latest['hashrate_ths'],
                 'gpu_model'=>(string)($latest['gpu_model']??''),
                 'watts'=>$latest['watts']===null?null:(float)$latest['watts'],
-                'at'=>$latest['observed_at']
+                'at'=>$latest['metric_at']
             ]:null;
             $node['signal']=miner_monitor_profit_signal((string)$group['group_name'],(string)$group['priority'],$node['metric'],$group['pearlhash_verified']);
             if(in_array(strtolower((string)$group['priority']),['lowest','batch'],true)) {

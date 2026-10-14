@@ -32,6 +32,34 @@ function miner_collector_health_label(string $status): string {
     };
 }
 
+/** Convert the bounded numeric id-map payload into safe, presentation fields. */
+function miner_idmap_summary(string $detail):array {
+    preg_match_all('/(?:^|\s)(n|ready|gpu|mapped|unknown|noid|old|ids|ths|missing|pages|partial|evpartial|apierr)=(\d+)/',
+        $detail,$matches,PREG_SET_ORDER);
+    $counts=[];
+    foreach($matches as $match)$counts[$match[1]]=(int)$match[2];
+    $ready=$counts['ready']??0;$measured=$counts['ths']??0;
+    $reason=match(true) {
+        ($counts['apierr']??0)>0=>'Error consultando los logs de Salad',
+        ($counts['partial']??0)>0=>'La respuesta de logs quedó incompleta',
+        ($counts['unknown']??0)>0=>'Hay logs con ID que no coincide con una instancia activa',
+        ($counts['noid']??0)>0=>'Hay logs sin ID de instancia verificable',
+        ($counts['missing']??0)>0=>'No hay TH/s reciente para todas las GPU listas',
+        $ready>0=>'Todas las GPU listas tienen lectura reciente',
+        default=>'Sin réplicas listas en el último sondeo'
+    };
+    return [
+        'active'=>$ready,'measured'=>$measured,
+        'missing'=>$counts['missing']??0,
+        'coverage_percent'=>$ready>0?(int)round(100*$measured/$ready):null,
+        'requests'=>$counts['pages']??0,
+        'pagination_partial'=>($counts['partial']??0)>0,
+        'metric_label'=>$ready===0?'Sin GPU listas':(($counts['partial']??0)>0?'TH/s parcial':'TH/s completa'),
+        'event_pagination_partial'=>($counts['evpartial']??0)>0,
+        'reason'=>$reason
+    ];
+}
+
 /**
  * Official prices are useful only while the local authenticated snapshot is
  * fresh. A failed refresh never turns an unknown price into zero.
@@ -191,11 +219,13 @@ function miner_collector_diagnostics(): array {
         $key=miner_log_sync_source_key('salad-idmap:'.$org.'/'.$project.'/'.$name);
         $getIdmap->execute([$key]);
         $sample=$getIdmap->fetch(PDO::FETCH_ASSOC)?:null;
+        $detail=(string)($sample['detail']??'Sin diagnóstico todavía');
         $idmap[]=[
             'organization'=>$org,'group_name'=>$name,
             'observed_at'=>$sample['observed_at']??null,
             'status'=>$sample['status']??'missing',
-            'detail'=>$sample['detail']??'Sin diagnóstico todavía'
+            'detail'=>$detail,
+            ...miner_idmap_summary($detail)
         ];
     }
     $warnings=$db->query("SELECT g.organization,g.group_name,l.logged_at,l.summary FROM log_events l JOIN group_state g ON g.id=l.group_id WHERE l.severity='warning' AND l.logged_at>=UTC_TIMESTAMP()-INTERVAL 24 HOUR ORDER BY l.logged_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
