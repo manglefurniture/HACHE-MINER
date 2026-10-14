@@ -84,6 +84,18 @@ monitor_assert(miner_monitor_log_metric('GPU 0 accepted share 80 TH/s')===null,'
 monitor_assert(miner_monitor_log_metric('GPU 0 average 15 min 80 TH/s')===null,'Rolling average is not individual instant GPU hashrate');
 monitor_assert(miner_monitor_log_metric('GPU 0 RTX 4070 Laptop GPU 80 MH/s')===null,'Wrong units cannot be called TH/s');
 
+$zeroGpu=miner_monitor_log_metric('[2026-10-14 12:52:03] #0  RTX 4070 Ti SUPER            0.00 H/s     9.8W       -       -   35C');
+monitor_assert($zeroGpu!==null && $zeroGpu['hashrate_ths']===0.0
+    && $zeroGpu['watts']===9.8 && str_contains($zeroGpu['gpu'],'RTX 4070 Ti SUPER'),
+    'Real Salad SRBMiner device row at zero H/s must be visible as measured zero TH/s');
+$zeroPrefixed=miner_monitor_log_metric('GPU0 #0 RTX 4070 Ti SUPER 0 H/s 11W');
+monitor_assert($zeroPrefixed!==null && $zeroPrefixed['hashrate_ths']===0.0,
+    'Zero rate must work for indexed GPU0 device lines without inventing speed');
+monitor_assert(miner_monitor_log_metric('GPU0 #0 RTX 4070 Ti SUPER 1 H/s')===null,
+    'Nonzero H/s must not be misreported as TH/s');
+monitor_assert(miner_monitor_log_metric('Pool total 0.00 H/s')===null,
+    'Zero pool total is never a zero-rate individual GPU');
+
 // Production shape (sanitized diagnostic of INTERACTIVE/prl-2sesiones):
 // [timestamp] #0 RTX 4070 Laptop Gpu <number> TH/s <optional metadata>.
 // This is a GPU table row, not a pool hashrate and not a rolling average.
@@ -124,6 +136,18 @@ $matched=miner_monitor_instance_log_metrics($metricLogs,[$nodeA,$nodeB],$time);
 monitor_assert(count($matched)===2,'Multi-node readings should map to two exact known instances');
 monitor_assert($matched['a-111']['hashrate_ths']===158.13,'First instance assigned incorrect hashrate');
 monitor_assert($matched['b-222']['hashrate_ths']===117.13,'Second machine_id mapping failed');
+
+$zeroLog=['time'=>'2026-10-09T18:44:00Z',
+    'text_log'=>'[2026-10-09 18:44:00] #0 RTX 4070 Ti SUPER 0.00 H/s 9.8W',
+    'resource'=>['labels'=>['instance_id'=>'a-111']]];
+$zeroMapped=miner_monitor_instance_log_metrics([$zeroLog],[$nodeA,$nodeB],$time);
+monitor_assert(count($zeroMapped)===1 && $zeroMapped['a-111']['hashrate_ths']===0.0
+    && !isset($zeroMapped['b-222']) && $zeroMapped['a-111']['log_at']==='2026-10-09T18:44:00Z',
+    'Zero production must preserve timestamp and exact identity without leaking across replicas');
+$unlabeledZero=$zeroLog;
+unset($unlabeledZero['resource']);
+monitor_assert(miner_monitor_instance_log_metrics([$unlabeledZero],[$nodeA,$nodeB],$time)===[],
+    'Unknown zero-rate log in a multi-replica group must remain unattributed');
 monitor_assert(miner_monitor_log_instance($metricLogs[2],[$nodeA,$nodeB])===null,'Anonymous multi-node log must NOT be assigned');
 
 monitor_assert(miner_monitor_log_instance([
