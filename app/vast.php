@@ -12,6 +12,14 @@ function miner_vast_schema_ready(): bool {
     try { return (int)miner_db()->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('vast_instances','vast_samples','vast_gpu_samples')")->fetchColumn()===3; }
     catch(Throwable) { return false; }
 }
+function miner_vast_monitor(): array {
+    if(!miner_vast_schema_ready())return ['ready'=>false,'instances'=>[]];
+    $db=miner_db();$instances=$db->query('SELECT instance_id,machine_id,label,gpu_count,hourly_usd,low_ths,normal_ths FROM vast_instances WHERE enabled=1 ORDER BY updated_at DESC')->fetchAll();
+    $latest=$db->prepare('SELECT s.id,s.observed_at,s.received_at,s.total_ths,s.accepted_shares,s.rejected_shares FROM vast_samples s WHERE s.instance_id=? ORDER BY s.observed_at DESC LIMIT 1');
+    $gpus=$db->prepare('SELECT gpu_index,gpu_model,hashrate_ths,average_ths,temp_c,watts,state FROM vast_gpu_samples WHERE sample_id=? ORDER BY gpu_index');
+    foreach($instances as &$i){$latest->execute([$i['instance_id']]);$s=$latest->fetch();$i['sample']=$s?:null;$i['gpus']=[];$i['stale']=true;if($s){$i['stale']=strtotime((string)$s['received_at'])<time()-180;$gpus->execute([(int)$s['id']]);$i['gpus']=$gpus->fetchAll();}}
+    return ['ready'=>true,'instances'=>$instances];
+}
 function miner_vast_valid_number(mixed $value,float $max): ?float {
     if(!is_numeric($value)||!is_finite((float)$value)||(float)$value<0||(float)$value>$max)return null;
     return (float)$value;
