@@ -32,8 +32,28 @@ function miner_collector_health_label(string $status): string {
     };
 }
 
+/** True only while an ID-map report can still describe the current Salad inventory. */
+function miner_idmap_sample_fresh(?array $sample,int $now):bool {
+    $observed=$sample['observed_at']??null;
+    if(!is_string($observed)
+        || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D',$observed))return false;
+    $date=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$observed,new DateTimeZone('UTC'));
+    $errors=DateTimeImmutable::getLastErrors();
+    if($date===false || (is_array($errors)&&($errors['warning_count']>0||$errors['error_count']>0)))return false;
+    $when=$date->getTimestamp();
+    return $when<=$now+120 && $now-$when<=600;
+}
+
 /** Convert the bounded numeric id-map payload into safe, presentation fields. */
-function miner_idmap_summary(string $detail):array {
+function miner_idmap_summary(string $detail,bool $fresh=true):array {
+    if(!$fresh) {
+        return [
+            'active'=>null,'measured'=>null,'missing'=>null,'coverage_percent'=>null,
+            'requests'=>null,'pagination_partial'=>null,'metric_label'=>'Sin diagnóstico',
+            'event_pagination_partial'=>false,
+            'reason'=>'La última muestra de diagnóstico tiene más de 10 minutos'
+        ];
+    }
     preg_match_all('/(?:^|\s)(n|ready|gpu|mapped|unknown|noid|old|ids|ths|missing|pages|partial|evpartial|apierr)=(\d+)/',
         $detail,$matches,PREG_SET_ORDER);
     $counts=[];
@@ -228,13 +248,15 @@ function miner_collector_diagnostics(): array {
         $key=miner_log_sync_source_key('salad-idmap:'.$org.'/'.$project.'/'.$name);
         $getIdmap->execute([$key]);
         $sample=$getIdmap->fetch(PDO::FETCH_ASSOC)?:null;
-        $detail=(string)($sample['detail']??'Sin diagnóstico todavía');
+        $sampleFresh=miner_idmap_sample_fresh($sample,$now);
+        $sampleStale=$sample!==null&&!$sampleFresh;
+        $detail=$sampleFresh?(string)($sample['detail']??'Sin diagnóstico todavía'):'Sin diagnóstico todavía';
         $idmap[]=[
             'organization'=>$org,'group_name'=>$name,
-            'observed_at'=>$sample['observed_at']??null,
-            'status'=>$sample['status']??'missing',
+            'observed_at'=>$sampleFresh?$sample['observed_at']:null,
+            'status'=>$sampleStale?'stale':($sample['status']??'missing'),
             'detail'=>$detail,
-            ...miner_idmap_summary($detail)
+            ...miner_idmap_summary($detail,!$sampleStale)
         ];
     }
     $warnings=$db->query("SELECT g.organization,g.group_name,l.logged_at,l.summary FROM log_events l JOIN group_state g ON g.id=l.group_id WHERE l.severity='warning' AND l.logged_at>=UTC_TIMESTAMP()-INTERVAL 24 HOUR ORDER BY l.logged_at DESC LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);

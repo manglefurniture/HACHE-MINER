@@ -18,6 +18,17 @@ diagnostics_assert($noDiagnostic['active']===null && $noDiagnostic['measured']==
     && $noDiagnostic['metric_label']==='Sin diagnóstico',
     'Missing id-map rows must stay unknown, not become zero active GPUs');
 $now=strtotime('2026-10-12 12:00:00 UTC');
+$freshIdmap=['observed_at'=>'2026-10-12 11:55:00'];
+$staleIdmap=['observed_at'=>'2026-10-12 11:49:59'];
+diagnostics_assert(miner_idmap_sample_fresh($freshIdmap,$now),
+    'A recent ID-map report must describe the latest group snapshot');
+diagnostics_assert(!miner_idmap_sample_fresh($staleIdmap,$now),
+    'An ID-map report older than ten minutes must be unavailable');
+$staleSummary=miner_idmap_summary('n=4 ready=4 gpu=4 mapped=4 unknown=0 noid=0 old=0 ids=4 ths=4 missing=0 pages=1 partial=0 apierr=0',false);
+diagnostics_assert($staleSummary['active']===null && $staleSummary['measured']===null
+    && $staleSummary['metric_label']==='Sin diagnóstico'
+    && str_contains($staleSummary['reason'],'más de 10 minutos'),
+    'Stale ID-map counts must not appear as current complete coverage');
 $fresh=miner_rate_catalog_health(['status'=>'ok'],['observed_at'=>'2026-10-12 11:30:00','entries'=>8],$now);
 diagnostics_assert($fresh['status']==='tarifas_recientes' && $fresh['entries']===8,'Fresh official catalog must remain usable');
 $partial=miner_rate_catalog_health(['status'=>'partial'],['observed_at'=>'2026-10-12 11:30:00','entries'=>8],$now);
@@ -35,6 +46,8 @@ diagnostics_assert(str_contains($source,'$rateHealthByOrganization'),'Rate catal
 diagnostics_assert(!str_contains($source,'curl_init('),'Diagnostics must not make external API calls');
 diagnostics_assert(str_contains($source,"miner_log_sync_source_key('salad:'"),
     'Long Salad source names must be normalized in diagnostic read paths');
+diagnostics_assert(str_contains($source,'miner_idmap_sample_fresh($sample,$now)'),
+    'Collector diagnostics must ignore ID-map reports older than ten minutes');
 $view=file_get_contents(__DIR__.'/../public/index.php');
 diagnostics_assert(str_contains($view,'Catálogos de tarifas recientes') && str_contains($view,'Último error'),'Admin diagnostics must expose freshness and prior errors');
 diagnostics_assert(str_contains($view,'Con TH/s reciente') && str_contains($view,'Paginación / causa'),
