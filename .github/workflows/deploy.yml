@@ -47,6 +47,7 @@ jobs:
           php tests/deploy-regression.php
           php tests/diagnostics-regression.php
           php tests/vast-regression.php
+          python3 tests/vast-collector-regression.py
       - name: Verify deploy settings
         shell: bash
         env:
