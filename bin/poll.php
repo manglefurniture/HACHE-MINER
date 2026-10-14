@@ -30,6 +30,9 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     // Fetch mining telemetry first. Salad caps each response at 100 rows;
     // unrelated container output must not crowd identified TH/s lines out.
     // Salad's full-text `log` field supports case-insensitive contains filters.
+    // Search measured zero production alongside TH/s, not in overflow-prone general logs.
+    // Parenthesized OR / NOT are supported by Salad's log query language.
+    $metricFilter='(log contains~ "TH/s" or log contains~ "0.00 H/s")';
     $fetch=static function(string $query) use($url,$key):Closure {
       return static function(int $from,string $to,float $remainingSeconds) use($url,$query,$key):array {
         $body=[
@@ -58,7 +61,7 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     $metricError=false;$eventError=false;$metricErrorCode=0;$eventErrorCode=0;
     $metricStarted=microtime(true);
     try {
-        $metrics=miner_log_collect_windows($fetch($baseQuery.' and log contains~ "TH/s"'),
+        $metrics=miner_log_collect_windows($fetch($baseQuery.' and '.$metricFilter),
             $start,$end,7,min(11.5,max(0.2,$deadline-microtime(true)-2.5)));
     } catch(Throwable $e) {
         // A failed focused query must not suppress normal event collection.
@@ -73,7 +76,7 @@ function miner_logs(string $org,string $project,string $group,string $key): arra
     try {
         if($remaining<=0.15)throw new RuntimeException('Log budget exhausted');
         // Keep the general history disjoint from the focused metric pages.
-        $events=miner_log_collect_windows($fetch($baseQuery.' and log !contains~ "TH/s"'),$start,$end,
+        $events=miner_log_collect_windows($fetch($baseQuery.' and not '.$metricFilter),$start,$end,
             $requestsLeft,min(90.0,$remaining));
     } catch(Throwable $e) {
         $events=['items'=>[],'partial'=>true,'requests'=>1,'saturated_windows'=>0,
