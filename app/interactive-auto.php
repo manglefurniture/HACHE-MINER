@@ -11,10 +11,10 @@ require_once __DIR__.'/monitor.php';
 function miner_auto_low_prl_metric(array $rows, int $now): ?array {
     return miner_auto_prl_metric($rows,$now,'low');
 }
-/** Low: 3 consecutive <=125 TH/s; Medium: 2 consecutive strictly <145 TH/s. */
+/** Low: 3 consecutive <=125 TH/s; Medium: 2 below 145; High: 2 below 155. */
 function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array {
-    if(!in_array($priority,['low','medium'],true))return null;
-    $requiredSamples=$priority==='medium' ? 2 : 3;
+    if(!in_array($priority,['low','medium','high'],true))return null;
+    $requiredSamples=$priority==='low' ? 3 : 2;
     if(count($rows)<$requiredSamples)return null;
     $rows=array_slice($rows,0,$requiredSamples);
     $timestamps=[];$values=[];
@@ -27,14 +27,15 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
           || (float)$hash<0 || ($priority==='low' && (float)$hash>125.0)
           || ($priority==='medium' && (float)$hash>=145.0)
-          || ($priority==='medium' && $samplePriority!=='medium')
+          || ($priority==='high' && (float)$hash>=155.0)
+          || (in_array($priority,['medium','high'],true) && $samplePriority!==$priority)
           || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
           || !str_contains($gpu,'4070 TI SUPER')
           || (int)($row['ready']??0)!==1 || (int)($row['started']??0)!==1
           || strtolower((string)($row['state']??''))!=='running')return null;
         $timestamps[]=$parsed->getTimestamp();$values[]=(float)$hash;
     }
-    // Both priorities require distinct observations ~5m apart, with a recent
+    // All priorities require distinct observations ~5m apart, with a recent
     // latest reading. Preserve Low's three-sample duration requirement.
     $span=$timestamps[0]-$timestamps[$requiredSamples-1];
     if($timestamps[0]>$now+120 || $now-$timestamps[0]>480
@@ -46,10 +47,10 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
       'span_seconds'=>$span];
 }
 /** The registered/enabled target controls organization membership.
- * Both Low and Medium are global. HACHE's legacy poller is alert-only.
+ * Low, Medium and High are global. HACHE's legacy poller is alert-only.
  */
 function miner_auto_policy_group(string $organization,string $priority):bool {
-    return $organization!=='' && in_array($priority,['low','medium'],true);
+    return $organization!=='' && in_array($priority,['low','medium','high'],true);
 }
 function miner_auto_enabled(): bool {
     return getenv('MINER_INTERACTIVE_AUTO_ENABLED')==='1';
@@ -62,7 +63,7 @@ function miner_auto_candidates(int $now): array {
       FROM group_state g JOIN salad_targets t
       ON t.organization_slug=g.organization AND t.project_slug=g.project_name AND t.enabled=1
       WHERE g.state='running'
-        AND g.priority IN ('low','medium')
+        AND g.priority IN ('low','medium','high')
         AND g.last_seen_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       ORDER BY g.id LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
     $out=[];
@@ -73,7 +74,7 @@ function miner_auto_candidates(int $now): array {
       WHERE group_id=? AND observed_at>=UTC_TIMESTAMP()-INTERVAL 8 MINUTE
       GROUP BY instance_id LIMIT 20");
     // Optional schema 006 is not guaranteed on older deployments. Its absence
-    // must not interrupt Low; Medium fails closed without historical priority.
+    // must not interrupt Low; Medium and High fail closed without historical priority.
     // If populated, Low observations must also match their recorded priority.
     $prioritySql=miner_salad_prices_ready($db)
         ? 'priority_at_observation' : 'NULL AS priority_at_observation';
