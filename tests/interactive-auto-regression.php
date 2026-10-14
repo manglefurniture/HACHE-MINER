@@ -59,7 +59,46 @@ auto_check(miner_auto_prl_metric([$medium[0],$mediumRow('2026-10-09 21:01:00',13
     'Medium observations more than 7.5 minutes apart must not qualify');
 auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 20:59:00',130),$mediumRow('2026-10-09 20:54:00',130)],$now,'medium')===null,
     'Stale Medium observations must not qualify');
-auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'High priority must not be automated');
+// High: two distinct consecutive observations strictly below 155 TH/s,
+// taken while this same identified GPU was actually running at High.
+$high=[
+ $mediumRow('2026-10-09 21:09:00',154.99,'high'),
+ $mediumRow('2026-10-09 21:04:00',154.50,'high'),
+ $mediumRow('2026-10-09 20:59:00',175.0,'high')
+];
+$highGood=miner_auto_prl_metric($high,$now,'high');
+auto_check($highGood!==null,'Two consecutive High readings below 155 TH/s must qualify');
+auto_check($highGood['span_seconds']===300 && $highGood['average_ths']===154.75,
+    'High must use exactly the two latest readings');
+auto_check(miner_auto_prl_metric([$high[0]],$now,'high')===null,'One High reading must not trigger');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',155,'high'),$high[1]],$now,'high')===null,
+    'Exactly 155 TH/s in latest High reading must not qualify');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:04:00',155,'high')],$now,'high')===null,
+    'Exactly 155 TH/s in prior High reading must not qualify');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:04:00',160,'high')],$now,'high')===null,
+    'A recovered High reading must cancel relocation');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:04:00',140,'medium')],$now,'high')===null,
+    'Medium history must not trigger High relocation');
+auto_check(miner_auto_prl_metric([$medium[0],$high[1]],$now,'high')===null,
+    'A current Medium reading must not trigger High relocation');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:04:00',120,'high','RTX 5080')],$now,'high')===null,
+    'Other GPU classes must not trigger High relocation');
+auto_check(miner_auto_prl_metric([$high[0],array_replace($high[1],['started'=>0])],$now,'high')===null,
+    'Both High readings must have started');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:09:00',120,'high')],$now,'high')===null,
+    'Repeated timestamps cannot count twice for High');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:07:00',120,'high')],$now,'high')===null,
+    'High readings too close must not count twice');
+auto_check(miner_auto_prl_metric([$high[0],$mediumRow('2026-10-09 21:01:00',120,'high')],$now,'high')===null,
+    'Stale High reading gap must not qualify');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 20:59:00',130,'high'),
+    $mediumRow('2026-10-09 20:54:00',130,'high')],$now,'high')===null,
+    'Stale High readings must not trigger');
+auto_check(miner_auto_prl_metric(array_map(static fn($v)=>array_replace($v,['priority_at_observation'=>null]),$high),$now,'high')===null,
+    'High must fail closed without historical priority');
+auto_check(miner_auto_prl_metric($high,$now,'medium')===null,
+    'High readings must not trigger Medium relocation');
+auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'Medium readings must not trigger High');
 auto_check(miner_auto_prl_metric($medium,$now,'lowest')===null,'Lowest priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'low')===null,'Existing Low rule must remain at 125 TH/s');
 $lowTagged=[
@@ -90,12 +129,13 @@ auto_check(miner_auto_policy_group('interactive','low'),'Existing INTERACTIVE Lo
 foreach(['interactive','hache','guanabacoa','other-registered-organization'] as $org) {
     auto_check(miner_auto_policy_group($org,'low'),'Low must apply across organizations: '.$org);
     auto_check(miner_auto_policy_group($org,'medium'),'Medium must apply across organizations: '.$org);
+    auto_check(miner_auto_policy_group($org,'high'),'High must apply across organizations: '.$org);
 }
 auto_check(!miner_auto_policy_group('','low'),'Missing organization is never a valid target');
-auto_check(!miner_auto_policy_group('hache','lowest') && !miner_auto_policy_group('hache','high'),'No Lowest or High action');
+auto_check(!miner_auto_policy_group('hache','lowest'),'No Lowest action');
 auto_check(miner_auto_prl_metric(array_map(static fn($v)=>array_replace($v,['priority_at_observation'=>null]),$medium),$now,'medium')===null,
     'Missing migration 006 priority must never trigger Medium');
-auto_check(str_contains($autoSource,"g.priority IN ('low','medium')"),'Both Low and Medium must be global');
+auto_check(str_contains($autoSource,"g.priority IN ('low','medium','high')"),'Low, Medium and High must be global');
 auto_check(str_contains($autoSource,"'NULL AS priority_at_observation'"),'Missing optional migration must not break legacy Low query');
 auto_check(!str_contains($autoSource,"\$liveTarget['organization']!=='interactive'"),'Live cross-organization Medium must not be rejected');
 
