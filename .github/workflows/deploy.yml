@@ -46,6 +46,7 @@ jobs:
           php tests/remember-regression.php
           php tests/deploy-regression.php
           php tests/diagnostics-regression.php
+          php tests/vast-regression.php
       - name: Verify deploy settings
         shell: bash
         env:

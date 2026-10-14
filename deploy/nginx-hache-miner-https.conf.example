@@ -36,6 +36,14 @@ server {
         fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
         access_log off;
     }
+    # Authenticated collector endpoint.  It is not a public SRBMiner API.
+    location = /vast-ingest {
+        client_max_body_size 20k;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root/vast-ingest.php;
+        fastcgi_param HTTPS on;
+        fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
+    }
     location ~ \.php$ { return 404; }
     location ~ /\. { return 404; }
 }
