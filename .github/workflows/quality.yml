@@ -46,6 +46,7 @@ jobs:
           php tests/diagnostics-regression.php
           php tests/vast-regression.php
           python3 tests/vast-collector-regression.py
+          php tests/salad-telemetry-regression.php
       - name: Public artifact must not contain local secrets
         shell: bash
         run: |
