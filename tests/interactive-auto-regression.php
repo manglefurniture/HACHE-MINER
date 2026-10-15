@@ -99,6 +99,60 @@ auto_check(miner_auto_prl_metric(array_map(static fn($v)=>array_replace($v,['pri
 auto_check(miner_auto_prl_metric($high,$now,'medium')===null,
     'High readings must not trigger Medium relocation');
 auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'Medium readings must not trigger High');
+
+// RTX 5090 desktop High: strictly below 375 TH/s in two valid ~5-minute
+// observations of the same individual instance. Laptop is never eligible.
+$high5090=[
+ $mediumRow('2026-10-09 21:09:00',374.99,'high','NVIDIA GeForce RTX 5090'),
+ $mediumRow('2026-10-09 21:04:00',374.00,'high','RTX 5090'),
+ $mediumRow('2026-10-09 20:59:00',415.00,'high','RTX 5090')
+];
+$high5090Good=miner_auto_prl_metric($high5090,$now,'high');
+auto_check($high5090Good!==null && $high5090Good['span_seconds']===300,
+    'Desktop RTX 5090 High requires two consecutive sub-375 readings');
+auto_check($high5090Good['average_ths']===374.5,'5090 policy must use only two newest readings');
+auto_check(miner_auto_prl_metric([$high5090[0]],$now,'high')===null,
+    'A single 5090 High reading never relocates');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',375,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
+    'Exactly 375 TH/s in newest 5090 reading must reset');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',375,'high','RTX 5090')],$now,'high')===null,
+    'Exactly 375 TH/s in older 5090 reading must reset');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',415,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
+    'A recovered 5090 High reading must reset');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',370,'high','RTX 5090 Laptop GPU')],$now,'high')===null,
+    '5090 Laptop never inherits desktop threshold');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',370,'high','RTX 5090 Laptop GPU'),$high5090[1]],$now,'high')===null,
+    'Latest reading from Laptop cannot trigger desktop reallocation');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',370,'high','RTX 5090 Ti')],$now,'high')===null,
+    'RTX 5090 Ti must not inherit desktop 5090 threshold');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',370,'high','RTX 5090 D')],$now,'high')===null,
+    'RTX 5090 D must not inherit desktop 5090 threshold');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',370,'medium','RTX 5090')],$now,'high')===null,
+    '5090 High cannot use Medium samples');
+auto_check(miner_auto_prl_metric([$high5090[0],array_replace($high5090[1],['ready'=>0])],$now,'high')===null,
+    '5090 High requires ready samples');
+auto_check(miner_auto_prl_metric([$high5090[0],array_replace($high5090[1],['hashrate_ths'=>null])],$now,'high')===null,
+    'Missing 5090 hashrate must not trigger');
+auto_check(miner_auto_prl_metric([$high5090[0],array_replace($high5090[1],['observed_at'=>'2026-10-09 21:09:00'])],$now,'high')===null,
+    'Repeated 5090 timestamps must not trigger');
+auto_check(miner_auto_prl_metric([$high5090[0],array_replace($high5090[1],['observed_at'=>'2026-10-09 21:07:00'])],$now,'high')===null,
+    '5090 samples too close must not trigger');
+auto_check(miner_auto_prl_metric([$high5090[0],array_replace($high5090[1],['observed_at'=>'2026-10-09 21:01:00'])],$now,'high')===null,
+    'Gapped 5090 samples must not trigger');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 20:59:00',370,'high','RTX 5090'),
+    $mediumRow('2026-10-09 20:54:00',370,'high','RTX 5090')],$now,'high')===null,
+    'Stale 5090 samples must not trigger');
+auto_check(miner_auto_prl_metric($high5090,$now,'low')===null,
+    '5090 High measurements must not trigger Low');
+auto_check(miner_auto_prl_metric($high5090,$now,'medium')===null,
+    '5090 High measurements must not trigger Medium');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',370,'medium','RTX 5090'),
+    $mediumRow('2026-10-09 21:04:00',370,'medium','RTX 5090')],$now,'medium')===null,
+    'RTX 5090 Medium must not be automated');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',374,'high','RTX 5080'),
+    $mediumRow('2026-10-09 21:04:00',370,'high','RTX 5080')],$now,'high')===null,
+    'RTX 5080 must not inherit RTX 5090 High threshold');
+
 auto_check(miner_auto_prl_metric($medium,$now,'lowest')===null,'Lowest priority must not be automated');
 auto_check(miner_auto_prl_metric($medium,$now,'low')===null,'Existing Low rule must remain at 125 TH/s');
 $lowTagged=[
