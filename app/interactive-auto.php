@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__.'/core.php';
 require_once __DIR__.'/reallocate.php';
 require_once __DIR__.'/monitor.php';
+require_once __DIR__.'/salad-gpu-identity.php';
 
 /**
  * Policy applies ONLY to independently identified PRL (pearlhash) mining.
@@ -11,28 +12,44 @@ require_once __DIR__.'/monitor.php';
 function miner_auto_low_prl_metric(array $rows, int $now): ?array {
     return miner_auto_prl_metric($rows,$now,'low');
 }
-/** Low: 3 consecutive <=125 TH/s; Medium: 2 below 145; High: 2 below 155. */
+/**
+ * RTX 4070 Ti SUPER: Low <=125, Medium <145, High <155 TH/s.
+ * Desktop RTX 5090 at High only: <375 TH/s. Model normalization deliberately
+ * excludes Laptop, Ti, D and unverified variants. Never extrapolate across GPUs.
+ */
+function miner_auto_prl_below_threshold(string $gpu,float $hash,string $priority):bool {
+    if($priority==='high' && miner_gpu_model_key($gpu)==='rtx5090')return $hash<375.0;
+    if(!str_contains(strtoupper($gpu),'4070 TI SUPER'))return false;
+    return match($priority) {
+        'low'=>$hash<=125.0,
+        'medium'=>$hash<145.0,
+        'high'=>$hash<155.0,
+        default=>false
+    };
+}
+/** Consecutive verified per-instance PRL measurements under the model-specific floor. */
 function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array {
     if(!in_array($priority,['low','medium','high'],true))return null;
     $requiredSamples=$priority==='low' ? 3 : 2;
     if(count($rows)<$requiredSamples)return null;
     $rows=array_slice($rows,0,$requiredSamples);
-    $timestamps=[];$values=[];
+    $timestamps=[];$values=[];$expectedModel=null;
     foreach($rows as $row) {
         $stamp=(string)($row['observed_at']??'');
         $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$stamp,new DateTimeZone('UTC'));
         $hash=$row['hashrate_ths']??null;
-        $gpu=strtoupper((string)($row['gpu_model']??''));
+        $gpu=(string)($row['gpu_model']??'');
         $samplePriority=strtolower(trim((string)($row['priority_at_observation']??'')));
+        $modelKey=miner_gpu_model_key($gpu);
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
-          || (float)$hash<0 || ($priority==='low' && (float)$hash>125.0)
-          || ($priority==='medium' && (float)$hash>=145.0)
-          || ($priority==='high' && (float)$hash>=155.0)
+          || (float)$hash<0 || $modelKey===null
+          || ($expectedModel!==null && $modelKey!==$expectedModel)
+          || !miner_auto_prl_below_threshold($gpu,(float)$hash,$priority)
           || (in_array($priority,['medium','high'],true) && $samplePriority!==$priority)
           || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
-          || !str_contains($gpu,'4070 TI SUPER')
           || (int)($row['ready']??0)!==1 || (int)($row['started']??0)!==1
           || strtolower((string)($row['state']??''))!=='running')return null;
+        $expectedModel=$modelKey;
         $timestamps[]=$parsed->getTimestamp();$values[]=(float)$hash;
     }
     // All priorities require distinct observations ~5m apart, with a recent
