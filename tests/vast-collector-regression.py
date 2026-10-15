@@ -1,6 +1,67 @@
-import re
-line='\x1b[0m#0  RTX 5090  \x1b[32m379.67 TH/s\x1b[0m   497.4W  0.763  100%  68C  2272  13801  142  2  0'
-clean=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
-rows=re.findall(r'#(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+TH/s\s+(\d+(?:\.\d+)?)W.*?\s+(\d+)C\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)',clean)
-assert rows and rows[0][0]=='0' and rows[0][2]=='379.67' and rows[0][5:]==('142','2','0')
+#!/usr/bin/env python3
+"""Regression tests for real per-GPU Vast statistics, with no external services."""
+import importlib.util
+import os
+import pathlib
+import tempfile
+import time
+
+source = pathlib.Path(__file__).resolve().parents[1] / 'deploy' / 'vast-collector.py'
+spec = importlib.util.spec_from_file_location('vast_collector', source)
+collector = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(collector)
+
+
+def line(index, speed=379.67, accepted=142, rejected=2):
+    return (
+        f'#' + str(index) + f' RTX 5090 {speed:.2f} TH/s '
+        f'497.4W 0.763 100% 68C 2272 13801 {accepted} {rejected} 0'
+    )
+
+
+def rejects(text, count):
+    try:
+        collector.parse_gpu_table(text, count)
+    except ValueError:
+        return
+    raise AssertionError("invalid table must not produce valid telemetry")
+
+
+# ANSI escape codes and two simultaneous GPUs.
+two = '\x1b[0m' + line(0) + '\n' + line(1, 381.26, 180, 0) + '\n'
+data = collector.parse_gpu_table(two, 2)
+assert len(data['gpus']) == 2
+assert abs(data['total_ths'] - (379.67 + 381.26)) < 1e-6
+assert data['accepted_shares'] == 322 and data['rejected_shares'] == 2
+assert data['gpus'][1]['index'] == 1
+
+# One GPU and four GPUs must work. No hard-coded rows[-2:] truncation.
+assert len(collector.parse_gpu_table(line(0), 1)['gpus']) == 1
+four = '\n'.join(line(i, 120 + i) for i in range(4))
+assert len(collector.parse_gpu_table(four, 4)['gpus']) == 4
+
+# The LAST table wins, not a mixture with an earlier interval.
+combined = four + '\n' + line(0) + '\n' + line(1)
+rejects(combined, 4)
+rejects(line(0) + '\n' + line(0), 2)
+rejects('Pool speed 780 TH/s\nAccepted 999 shares', 2)
+rejects(line(0) + '\n' + line(1) + '\n' + ('noise\n' * 50), 2)
+
+zero = collector.parse_gpu_table(line(0, 0), 1)
+assert zero['total_ths'] == 0
+assert zero['gpus'][0]['state'] == 'inactive'
+
+# A frozen local miner log must NOT masquerade as fresh mining.
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, 'miner.log')
+    with open(path, 'w') as handle:
+        handle.write(two)
+    assert '#0' in collector.read_recent_log(path)
+    os.utime(path, (time.time() - 200, time.time() - 200))
+    try:
+        collector.read_recent_log(path)
+        raise AssertionError("stale miner log accepted")
+    except ValueError:
+        pass
+
 print('vast collector regression ok')
