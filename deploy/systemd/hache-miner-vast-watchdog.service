@@ -1,0 +1,25 @@
+[Unit]
+Description=HACHE-MINER Vast.ai independent alert watchdog (ntfy)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hache-miner
+Group=hache-miner
+WorkingDirectory=/srv/hache-miner/current
+ExecStart=/usr/bin/php -d auto_prepend_file=/etc/hache-miner/load-env.php /srv/hache-miner/current/bin/vast-watchdog.php
+TimeoutStartSec=45
+MemoryMax=96M
+CPUQuota=20%
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadOnlyPaths=/etc/hache-miner
+ReadWritePaths=/var/lib/hache-miner
+UMask=0077
