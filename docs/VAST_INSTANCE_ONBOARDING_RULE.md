@@ -2,6 +2,8 @@
 
 **Ámbito:** nueva instancia candidata o ya alquilada en Vast.ai, con cualquier combinación admitida de GPU NVIDIA (1–16). Esta regla es obligatoria para la puesta en servicio; no constituye permiso para alquilar ni dispara acciones por sí misma. La instancia de referencia 2× RTX 5090 demostró el flujo, pero **no se deben copiar sus identificadores, precio, billeteras de prueba o umbrales** a otras máquinas.
 
+**Extensión obligatoria:** seguir también `docs/VAST_WATCHDOG_ALERTS.md` (VAST-002). La minería y el cron de telemetría pueden estar funcionando sin que exista una alerta al teléfono. Mientras el watchdog no esté implementado y verificado, declarar explícitamente `MINANDO SIN ALERTAS` y tratarlo como tarea de seguridad operativa pendiente.
+
 **Principio:** *Una instancia no está operativa hasta que mina a la billetera aprobada, comparte shares válidos y transmite telemetría por GPU a HACHE-MINER automáticamente.*
 
 ## A. Selección y autorización (antes de generar costos nuevos)
