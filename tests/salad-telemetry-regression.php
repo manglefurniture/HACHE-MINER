@@ -28,6 +28,12 @@ $verified=miner_salad_telemetry_verify_jwt($jwt,$jwks);
 telemetry_assert($verified['machine_id']==='machine-test-01','Provider machine claim was not read');
 telemetry_assert($verified['workload_id']==='workload-test-01','Provider workload claim was not read');
 telemetry_assert($verified['organization']==='hache','Provider organization claim was not read');
+$refreshCalls=[];
+$refreshed=miner_salad_telemetry_verify_jwt($jwt,null,function(bool $refresh)use(&$refreshCalls,$jwks):array {
+    $refreshCalls[]=$refresh;
+    return $refresh? $jwks:['keys'=>[]];
+});
+telemetry_assert($refreshed['machine_id']==='machine-test-01'&&$refreshCalls===[false,true],'Unknown JWT key did not trigger one JWKS refresh');
 
 [$tampered]=signed_test_jwt($claims,$key);
 $parts=explode('.',$tampered);$parts[1]=b64u(json_encode(array_merge($claims,['salad_machine_id'=>'attacker']),JSON_THROW_ON_ERROR));
@@ -45,4 +51,5 @@ telemetry_assert(hash_equals($signature,hash_hmac('sha256',$timestamp.'.'.$raw,$
 telemetry_assert(!hash_equals($signature,hash_hmac('sha256',$timestamp.'.{"sample_id":"b"}',$secret)),'Modified payload did not invalidate HMAC');
 telemetry_assert(str_contains((string)file_get_contents(__DIR__.'/../database/010_salad_native_telemetry.sql'),'uq_salad_native_sample'),'Sample replay uniqueness is missing');
 telemetry_assert(str_contains((string)file_get_contents(__DIR__.'/../app/salad-telemetry.php'),'Replayed or out-of-order sample'),'Timestamp replay guard is missing');
+telemetry_assert(str_contains((string)file_get_contents(__DIR__.'/../app/salad-telemetry.php'),'last_seen_at>=UTC_TIMESTAMP()-INTERVAL 10 MINUTE FOR UPDATE'),'Ingestion must lock the instance identity before timestamp ordering');
 echo "SALAD_TELEMETRY_REGRESSION_OK\n";

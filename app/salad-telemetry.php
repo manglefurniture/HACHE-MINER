@@ -55,9 +55,9 @@ function miner_salad_ecdsa_der(string $signature): string {
     $body=miner_salad_der_integer(substr($signature,0,32)).miner_salad_der_integer(substr($signature,32,32));
     return "\x30".miner_salad_der_length(strlen($body)).$body;
 }
-function miner_salad_workload_jwks(): array {
+function miner_salad_workload_jwks(bool $refresh=false): array {
     $cache=sys_get_temp_dir().'/hache-salad-workload-jwks.json';
-    if(is_file($cache)&&time()-(int)filemtime($cache)<900){$cached=json_decode((string)file_get_contents($cache),true);if(is_array($cached))return $cached;}
+    if(!$refresh&&is_file($cache)&&time()-(int)filemtime($cache)<900){$cached=json_decode((string)file_get_contents($cache),true);if(is_array($cached))return $cached;}
     $ch=curl_init(MINER_SALAD_TELEMETRY_JWKS);
     curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>10,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_HTTPHEADER=>['Accept: application/json']]);
     $body=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);curl_close($ch);
@@ -66,14 +66,22 @@ function miner_salad_workload_jwks(): array {
     $tmp=$cache.'.'.bin2hex(random_bytes(5));if(file_put_contents($tmp,$body,LOCK_EX)!==false){@chmod($tmp,0600);@rename($tmp,$cache);}
     return $jwks;
 }
-function miner_salad_telemetry_verify_jwt(string $jwt,?array $testJwks=null): array {
+function miner_salad_telemetry_verify_jwt(string $jwt,?array $testJwks=null,?callable $jwksLoader=null): array {
     if(strlen($jwt)<100||strlen($jwt)>8192)throw new InvalidArgumentException('Invalid identity');
     $parts=explode('.',$jwt);if(count($parts)!==3)throw new InvalidArgumentException('Invalid identity');
     $header=json_decode(miner_salad_b64url_decode($parts[0]),true,8,JSON_THROW_ON_ERROR);
     $claims=json_decode(miner_salad_b64url_decode($parts[1]),true,16,JSON_THROW_ON_ERROR);
     if(!is_array($header)||($header['alg']??'')!=='ES256'||!is_string($header['kid']??null)||!is_array($claims))throw new InvalidArgumentException('Invalid identity');
-    $jwks=$testJwks??miner_salad_workload_jwks();$key=null;
-    foreach($jwks['keys']??[] as $candidate)if(is_array($candidate)&&($candidate['kid']??null)===$header['kid']){$key=$candidate;break;}
+    $findKey=static function(array $set)use($header):?array {
+        foreach($set['keys']??[] as $candidate)if(is_array($candidate)&&($candidate['kid']??null)===$header['kid'])return $candidate;
+        return null;
+    };
+    $jwks=$jwksLoader?$jwksLoader(false):($testJwks??miner_salad_workload_jwks());
+    $key=$findKey($jwks);
+    if(!$key&&!$testJwks){
+        $jwks=$jwksLoader?$jwksLoader(true):miner_salad_workload_jwks(true);
+        $key=$findKey($jwks);
+    }
     if(!$key||($key['kty']??'')!=='EC'||($key['crv']??'')!=='P-256')throw new InvalidArgumentException('Invalid identity');
     $x=miner_salad_b64url_decode((string)($key['x']??''));$y=miner_salad_b64url_decode((string)($key['y']??''));
     if(strlen($x)!==32||strlen($y)!==32)throw new InvalidArgumentException('Invalid identity');
@@ -120,7 +128,9 @@ function miner_salad_telemetry_ingest(string $raw,string $timestamp,string $sign
     if($total===null||!is_array($gpus)||count($gpus)<1||count($gpus)>16)throw new InvalidArgumentException('Invalid GPU payload');
     $db=miner_db();$db->beginTransaction();
     try {
-        $map=$db->prepare('SELECT organization_slug,project_slug,group_name,instance_id,machine_id,workload_id FROM salad_telemetry_instances WHERE machine_id=? AND workload_id=? AND enabled=1 AND last_seen_at>=UTC_TIMESTAMP()-INTERVAL 10 MINUTE');
+        // Lock the mapped Salad instance row so concurrent samples for this
+        // instance serialize before checking the latest observed timestamp.
+        $map=$db->prepare('SELECT organization_slug,project_slug,group_name,instance_id,machine_id,workload_id FROM salad_telemetry_instances WHERE machine_id=? AND workload_id=? AND enabled=1 AND last_seen_at>=UTC_TIMESTAMP()-INTERVAL 10 MINUTE FOR UPDATE');
         $map->execute([$claims['machine_id'],$claims['workload_id']]);$matches=$map->fetchAll(PDO::FETCH_ASSOC);
         if(count($matches)!==1||$matches[0]['organization_slug']!==$claims['organization'])throw new InvalidArgumentException('Unknown or ambiguous Salad identity');
         $identity=$matches[0];$instance=(string)$identity['instance_id'];
