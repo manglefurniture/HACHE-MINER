@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Vast.ai mining telemetry and ntfy alerts every minute
+
+[Timer]
+OnCalendar=*:*:00
+AccuracySec=10s
+Persistent=false
+Unit=hache-miner-vast-watchdog.service
+
+[Install]
+WantedBy=timers.target
