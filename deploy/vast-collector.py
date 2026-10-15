@@ -1,15 +1,135 @@
 #!/usr/bin/env python3
-"""Read-only SRBMiner log collector. Never starts, stops, or configures the miner."""
-import hashlib,hmac,json,os,re,subprocess,time,uuid,urllib.request
-URL=os.environ['HACHE_VAST_INGEST_URL']; KEY=os.environ['HACHE_VAST_INGEST_KEY'].encode(); INSTANCE=os.environ['HACHE_VAST_INSTANCE_ID']; LOG=os.environ.get('HACHE_SRBMINER_LOG','/var/log/prl-miner.log')
-text=subprocess.check_output(['tail','-n','80',LOG],text=True,stderr=subprocess.DEVNULL)
-# SRBMiner decorates individual cells with ANSI SGR sequences.  Remove those
-# sequences first; otherwise a real #0/#1 statistics row is not parseable.
-text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
-rows=re.findall(r'#(\d+)\s+(.+?)\s+(\d+(?:\.\d+)?)\s+TH/s\s+(\d+(?:\.\d+)?)W.*?\s+(\d+)C\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)',text)
-if not rows: raise SystemExit('no verified SRBMiner GPU rows')
-gpu=[]; acc=rej=0
-for i,model,h,w,t,a,r,hw in rows[-2:]:
-    acc+=int(a);rej+=int(r);gpu.append({'index':int(i),'model':model.strip(),'hashrate_ths':float(h),'average_ths':None,'temp_c':int(t),'watts':float(w),'state':'mining' if float(h)>0 else 'inactive'})
-payload={'instance_id':INSTANCE,'sample_id':str(uuid.uuid4()),'observed_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'total_ths':sum(x['hashrate_ths'] for x in gpu),'accepted_shares':acc,'rejected_shares':rej,'gpus':gpu}
-raw=json.dumps(payload,separators=(',',':')).encode(); ts=str(int(time.time())); sig=hmac.new(KEY,ts.encode()+b'.'+raw,hashlib.sha256).hexdigest(); req=urllib.request.Request(URL,data=raw,method='POST',headers={'Content-Type':'application/json','User-Agent':'Hache-Vast-Collector/1.0','X-Hache-Timestamp':ts,'X-Hache-Signature':sig}); urllib.request.urlopen(req,timeout=12).read()
+"""Read-only, fail-closed SRBMiner -> signed Vast telemetry (one invocation).
+
+The miner must already be running. This collector never starts/stops/tunes it.
+Install as a periodic task on the Vast instance, not on the Hache VPS.
+"""
+import hashlib
+import hmac
+import json
+import os
+import re
+import subprocess
+import time
+import uuid
+import urllib.request
+
+ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+# An indexed physical GPU table row, not a pool speed or average.
+ROW = re.compile(
+    r'^\s*(?:\[[^\]\r\n]{1,90}\]\s*)?(?:GPU\s*#?\d{1,2}\s+)?#(?P<index>\d{1,2})\s+'
+    r'(?P<model>[A-Za-z][^\r\n]{2,119}?)\s+'
+    r'(?P<hash>\d+(?:\.\d+)?)\s+TH/s\s+'
+    r'(?P<watts>\d+(?:\.\d+)?)W.*?\s+'
+    r'(?P<temp>\d+)C\s+\d+\s+\d+\s+'
+    r'(?P<accepted>\d+)\s+(?P<rejected>\d+)\s+(?P<hw>\d+)\b',
+    re.IGNORECASE,
+)
+
+
+def parse_gpu_table(text, expected_count):
+    """Parse only the LAST complete SRBMiner GPU table; never mix intervals."""
+    if not 1 <= expected_count <= 16:
+        raise ValueError("GPU count must be between 1 and 16")
+    lines = text.splitlines()
+    found = []
+    for line_number, line in enumerate(lines):
+        match = ROW.search(ANSI.sub('', line))
+        if not match:
+            continue
+        data = match.groupdict()
+        model = data['model'].strip()
+        if re.search(r'\b(?:pool|total|average|worker|shares?)\b', model, re.I):
+            continue
+        if float(data['hash']) > 20000 or float(data['watts']) > 1500 or int(data['temp']) > 150:
+            continue
+        found.append({
+            'line': line_number,
+            'index': int(data['index']),
+            'model': model,
+            'hashrate_ths': float(data['hash']),
+            'watts': float(data['watts']),
+            'temp_c': int(data['temp']),
+            'accepted': int(data['accepted']),
+            'rejected': int(data['rejected']),
+        })
+    starts = [index for index, row in enumerate(found) if row['index'] == 0]
+    if not starts:
+        raise ValueError("no indexed SRBMiner GPU statistics")
+    latest = found[starts[-1]:]
+    # A partial/repeated table is NOT a complete sample, even if older GPU
+    # rows in the same file could be used to fill missing entries.
+    if [row['index'] for row in latest] != list(range(expected_count)):
+        raise ValueError("latest SRBMiner GPU table incomplete or inconsistent")
+    if len(lines) - latest[-1]['line'] > 41:
+        raise ValueError("latest SRBMiner GPU table is too far from log tail")
+    gpu = [{
+        'index': row['index'],
+        'model': row['model'],
+        'hashrate_ths': row['hashrate_ths'],
+        'average_ths': None,
+        'temp_c': row['temp_c'],
+        'watts': row['watts'],
+        'state': 'mining' if row['hashrate_ths'] > 0 else 'inactive',
+    } for row in latest]
+    return {
+        'total_ths': sum(row['hashrate_ths'] for row in latest),
+        'accepted_shares': sum(row['accepted'] for row in latest),
+        'rejected_shares': sum(row['rejected'] for row in latest),
+        'gpus': gpu,
+    }
+
+
+def read_recent_log(path, now=None):
+    """A frozen log cannot produce new mining readings."""
+    now = time.time() if now is None else now
+    age = now - os.stat(path).st_mtime
+    if age < -30 or age > 120:
+        raise ValueError("SRBMiner log is not recent")
+    return subprocess.check_output(
+        ['tail', '-n', '200', path], text=True, stderr=subprocess.DEVNULL
+    )
+
+
+def gpu_count_from_host():
+    # Visible physical GPUs; do not assume two or infer the count from logs.
+    output = subprocess.check_output(
+        ['nvidia-smi', '-L'], text=True, stderr=subprocess.DEVNULL, timeout=8
+    )
+    return sum(bool(re.match(r'^GPU \d+:', line)) for line in output.splitlines())
+
+
+def main():
+    url = os.environ['HACHE_VAST_INGEST_URL']
+    if not url.startswith('https://'):
+        raise ValueError("Vast ingest must use HTTPS")
+    key = os.environ['HACHE_VAST_INGEST_KEY'].encode()
+    instance = os.environ['HACHE_VAST_INSTANCE_ID']
+    log = os.environ.get('HACHE_SRBMINER_LOG', '/var/log/prl-miner.log')
+    configured_count = os.environ.get('HACHE_VAST_GPU_COUNT')
+    count = int(configured_count) if configured_count else gpu_count_from_host()
+    payload = parse_gpu_table(read_recent_log(log), count)
+    payload.update({
+        'instance_id': instance,
+        'sample_id': str(uuid.uuid4()),
+        'observed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    })
+    raw = json.dumps(payload, separators=(',', ':')).encode()
+    timestamp = str(int(time.time()))
+    signature = hmac.new(key, timestamp.encode() + b'.' + raw, hashlib.sha256).hexdigest()
+    request = urllib.request.Request(
+        url, data=raw, method='POST',
+        headers={
+            'Content-Type': 'application/json',
+            'User-Agent': 'Hache-Vast-Collector/1.1',
+            'X-Hache-Timestamp': timestamp,
+            'X-Hache-Signature': signature,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        if response.status != 202:
+            raise RuntimeError("Vast telemetry was not accepted")
+
+
+if __name__ == '__main__':
+    main()
