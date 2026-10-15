@@ -119,6 +119,10 @@ auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',
     'Exactly 375 TH/s in older 5090 reading must reset');
 auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',415,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
     'A recovered 5090 High reading must reset');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',154.5,'high','RTX 4070 Ti SUPER')],$now,'high')===null,
+    '5090 and 4070 Ti SUPER must not combine two different model thresholds');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',154.5,'high','RTX 4070 Ti SUPER'),$high5090[1]],$now,'high')===null,
+    '4070 Ti SUPER and 5090 must not combine two different model thresholds');
 auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',370,'high','RTX 5090 Laptop GPU')],$now,'high')===null,
     '5090 Laptop never inherits desktop threshold');
 auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',370,'high','RTX 5090 Laptop GPU'),$high5090[1]],$now,'high')===null,
