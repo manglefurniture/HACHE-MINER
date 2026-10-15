@@ -33,19 +33,23 @@ function miner_auto_prl_metric(array $rows, int $now, string $priority): ?array 
     $requiredSamples=$priority==='low' ? 3 : 2;
     if(count($rows)<$requiredSamples)return null;
     $rows=array_slice($rows,0,$requiredSamples);
-    $timestamps=[];$values=[];
+    $timestamps=[];$values=[];$expectedModel=null;
     foreach($rows as $row) {
         $stamp=(string)($row['observed_at']??'');
         $parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$stamp,new DateTimeZone('UTC'));
         $hash=$row['hashrate_ths']??null;
         $gpu=(string)($row['gpu_model']??'');
         $samplePriority=strtolower(trim((string)($row['priority_at_observation']??'')));
+        $modelKey=miner_gpu_model_key($gpu);
         if(!$parsed || !is_numeric($hash) || !is_finite((float)$hash)
-          || (float)$hash<0 || !miner_auto_prl_below_threshold($gpu,(float)$hash,$priority)
+          || (float)$hash<0 || $modelKey===null
+          || ($expectedModel!==null && $modelKey!==$expectedModel)
+          || !miner_auto_prl_below_threshold($gpu,(float)$hash,$priority)
           || (in_array($priority,['medium','high'],true) && $samplePriority!==$priority)
           || ($priority==='low' && $samplePriority!=='' && $samplePriority!=='low')
           || (int)($row['ready']??0)!==1 || (int)($row['started']??0)!==1
           || strtolower((string)($row['state']??''))!=='running')return null;
+        $expectedModel=$modelKey;
         $timestamps[]=$parsed->getTimestamp();$values[]=(float)$hash;
     }
     // All priorities require distinct observations ~5m apart, with a recent
