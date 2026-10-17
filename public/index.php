@@ -14,6 +14,7 @@ require_once dirname(__DIR__).'/app/reallocate.php';
 require_once dirname(__DIR__).'/app/safetrade.php';
 require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 require_once dirname(__DIR__).'/app/vast.php';
+require_once dirname(__DIR__).'/app/salad-telemetry.php';
 miner_security_headers();
 try {
     miner_session();
@@ -172,7 +173,7 @@ try {
     }
     if ($page!=='login') $uid=miner_require_admin();
     $csrf=miner_h(miner_csrf());
-    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$rateGpuCatalogue=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$vastData=null;$trialHistory=null;$shareLearning=null;$modelHistory=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
+    $groups=$wallets=$runs=$secrets=$rates=$charges=[];$gpuClassOptions=[];$rateGpuCatalogue=[];$trustedDevices=[];$targets=[];$collectorDiag=null;$replicaStates=[];$poolOverview=null;$monitorData=null;$vastData=null;$saladTelemetryData=null;$trialHistory=null;$shareLearning=null;$modelHistory=null;$financeData=[];$ledgerData=null;$ledgerPool=null;$ledgerSaved=null;$creditData=null;$creditSaved=null;$reallocationTarget=null;$reallocationChallenge='';$manualCooldown=[];$manualSuccess=null;
     if ($page!=='login') {
         $targets=miner_salad_targets(false);
         $groups=miner_db()->query('SELECT id,organization,project_name,group_name,state,priority,desired_replicas,last_seen_at FROM group_state ORDER BY organization,group_name LIMIT 100')->fetchAll();
@@ -193,6 +194,7 @@ try {
             }
         }
         if ($page==='vast') $vastData=miner_vast_monitor();
+        if ($page==='salad-telemetry') $saladTelemetryData=miner_salad_telemetry_monitor();
         if ($page==='reallocate') {
             try {
                 $getGroup=filter_var($_GET['group_id']??null,FILTER_VALIDATE_INT);
@@ -279,7 +281,7 @@ function orgselect(): void {
 <div class="eyebrow">CENTRO DE OPERACIONES / HACHE INTERACTIVE</div>
 <h1>Minería, bajo control.</h1>
 <p class="muted">Registro independiente para HACHE e INTERACTIVE. Los datos no observados se muestran como desconocidos, nunca como cero.</p>
-<nav><a href="/">Resumen</a><a href="/?page=monitor">Monitor GPU</a><a href="/?page=vast">Vast.ai</a><a href="/?page=finance">Finanzas</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
+<nav><a href="/">Resumen</a><a href="/?page=monitor">Monitor GPU</a><a href="/?page=salad-telemetry">Medición Salad</a><a href="/?page=vast">Vast.ai</a><a href="/?page=finance">Finanzas</a><a href="/?page=diagnostics">Estado de recolección</a><a href="/?page=settings">Configuración</a><a href="/?page=history">Historial</a></nav>
 <?php if(isset($_GET['saved'])): ?><p class="success">Configuración guardada.</p><?php endif; ?>
 <?php if($page==='monitor' && $manualSuccess!==null): ?><p class="success"><?= miner_h($manualSuccess) ?></p><?php endif; ?>
 <?php if($error): ?><p class="error"><?= miner_h($error) ?></p><?php endif; ?>
@@ -313,6 +315,7 @@ Proyecto: <strong><?= miner_h((string)$reallocationTarget['project_name']) ?></s
 <?php else: ?><p class="muted">Regresa al monitor y selecciona una instancia operativa.</p><a href="/?page=monitor">Volver al monitor</a><?php endif; ?></section>
 <?php elseif($page==='monitor'): ?>
 <section class="card"><h2>Monitor de GPU · última consulta de Salad</h2>
+<p class="muted">Las filas con logs del proveedor y las lecturas propias autenticadas se mantienen separadas. Consulta <a href="/?page=salad-telemetry">Medición Salad</a> para ver la fuente directa por GPU y sus tendencias.</p>
 <p class="muted">Las cifras son del último sondeo confirmado (aproximadamente cada cinco minutos), no una conexión en tiempo real. Las instancias cerradas entre sondeos pueden aparecer hasta la próxima consulta.</p>
 <?php $liveHash=$monitorData['live_hashrate'];$liveCost=$monitorData['live_hourly_cost']; ?>
 <div class="monitor-live-summary" aria-label="Resumen de hashrate medido">
@@ -513,6 +516,27 @@ foreach($monitorData['groups'] as $group) {
 </article>
 <?php endforeach;endforeach; ?>
 </section>
+<?php elseif($page==='salad-telemetry'): ?>
+<section class="card"><h2>Medición propia · SaladCloud</h2>
+<p class="muted">Fuente directa del contenedor, autenticada con el JWT firmado por Salad y contrastada con el último inventario válido de su API. Se conserva separada de los logs de Salad y de Vast.ai, y aún no alimenta las reglas de autorrelocalización. Actualización esperada: 60 segundos.</p>
+<?php if(!$saladTelemetryData['ready']): ?><p class="muted">La migración aditiva de telemetría aún no está aplicada.</p>
+<?php elseif(!$saladTelemetryData['instances']): ?><p class="muted">Todavía no hay instancias Salad con telemetría propia.</p>
+<?php else: foreach($saladTelemetryData['instances'] as $instance): ?>
+<article class="monitor-entry <?= $instance['stale']?'monitor-entry--yellow':'monitor-entry--green' ?>">
+<div class="monitor-topline"><div><h3><?= miner_h(strtoupper((string)$instance['organization_slug'])) ?> · <?= miner_h((string)$instance['group_name']) ?></h3>
+<small>Proyecto <?= miner_h((string)$instance['project_slug']) ?> · instancia <?= miner_h((string)$instance['instance_id']) ?> · máquina <?= miner_h((string)$instance['machine_id']) ?> autenticada</small></div>
+<div class="monitor-group-total"><strong><?= $instance['sample_id']===null?'Sin datos':miner_h(number_format((float)$instance['total_ths'],2)).' TH/s' ?></strong><small><?= $instance['stale']?'Lectura desactualizada':'Medición reciente' ?></small></div></div>
+<p class="muted">SRBMiner <?= miner_h((string)($instance['miner_version']??'—')) ?> · estado <?= miner_h((string)($instance['miner_state']??'desconocido')) ?> · origen: Salad directo · UTC <?= miner_h((string)($instance['observed_at']??'Sin datos')) ?></p>
+<?php if($instance['gpus']): ?><div class="tablewrap mobile-stack"><table><thead><tr><th>GPU</th><th>TH/s</th><th>Media 1 min</th><th>Media 5 min</th><th>Media 15 min</th><th>°C / watts</th><th>Shares A/R/HW</th><th>Estado</th></tr></thead><tbody>
+<?php foreach($instance['gpus'] as $gpu): ?><tr><td data-label="GPU">#<?= (int)$gpu['gpu_index'] ?> · <?= miner_h((string)$gpu['gpu_model']) ?></td>
+<td data-label="TH/s"><?= miner_h(number_format((float)$gpu['hashrate_ths'],2)) ?></td><td data-label="Media 1 min"><?= miner_h(number_format((float)$gpu['average_1m_ths'],2)) ?></td>
+<td data-label="Media 5 min"><?= miner_h(number_format((float)$gpu['average_5m_ths'],2)) ?></td><td data-label="Media 15 min"><?= miner_h(number_format((float)$gpu['average_15m_ths'],2)) ?></td>
+<td data-label="Temperatura / consumo"><?= $gpu['temp_c']===null?'—':(int)$gpu['temp_c'].' °C' ?> / <?= $gpu['watts']===null?'—':miner_h(number_format((float)$gpu['watts'],0)).' W' ?></td>
+<td data-label="Shares aceptadas / rechazadas / HW"><?= $gpu['accepted_shares']===null?'—':(int)$gpu['accepted_shares'] ?> / <?= $gpu['rejected_shares']===null?'—':(int)$gpu['rejected_shares'] ?> / <?= $gpu['hardware_errors']===null?'—':(int)$gpu['hardware_errors'] ?></td>
+<td data-label="Estado"><?= miner_h((string)$gpu['state']) ?></td></tr>
+<?php if($gpu['sparkline']!==null): ?><tr><td colspan="8"><small>Tendencia TH/s · últimos 60 min · <?= count($gpu['history']) ?> muestras</small><svg viewBox="0 0 360 90" role="img" aria-label="Tendencia de hashrate de GPU #<?= (int)$gpu['gpu_index'] ?>" style="width:100%;height:68px"><polyline points="<?= miner_h((string)$gpu['sparkline']) ?>" fill="none" stroke="currentColor" stroke-width="2"/></svg></td></tr><?php endif; ?>
+<?php endforeach; ?></tbody></table></div><?php else: ?><p class="muted">Sin muestras nuevas atribuidas a esta instancia.</p><?php endif; ?></article>
+<?php endforeach; endif; ?></section>
 <?php elseif($page==='finance'): ?>
 <section class="card">
 <h2>Contabilidad de minería · USD y PRL</h2>

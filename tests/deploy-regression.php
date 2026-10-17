@@ -65,7 +65,9 @@ assert_deploy(str_contains($installer, "https_ready=0"), 'HTTPS readiness must h
 assert_deploy(str_contains($installer, "--noproxy '*'"), 'Local preflight must bypass outbound proxies');
 assert_deploy(str_contains($nginx, 'SCRIPT_FILENAME $realpath_root/index.php'), 'FPM entrypoint must follow immutable releases, not cached symlink');
 assert_deploy(str_contains($nginx, 'SCRIPT_FILENAME $realpath_root/health.php'), 'Health entrypoint must follow immutable release');
+assert_deploy(str_contains($nginx, 'location = /salad-ingest.php') && str_contains($nginx, 'SCRIPT_FILENAME $realpath_root/salad-ingest.php'), 'Direct Salad ingest must have an explicit FastCGI route');
 assert_deploy(str_contains($upgrade, 'MINER_VHOST_ROLLED_BACK'), 'Dedicated vhost rollback required');
+assert_deploy(str_contains($upgrade, 'Salad telemetry route missing'), 'Vhost upgrade must refuse a release without the Salad route');
 assert_deploy(str_contains($upgrade, 'Recordar este dispositivo durante 30 días'), 'Nginx rollout requires new PHP UI verification');
 assert_deploy(str_contains($collector, 'hache-salad-monitor.timer'), 'Collector must preserve the existing Salad monitor');
 assert_deploy(str_contains($collector, 'miner_shared_salad_api_key()'), 'Collector requires shared Salad key before activation');

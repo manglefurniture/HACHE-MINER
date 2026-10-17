@@ -44,6 +44,13 @@ server {
         fastcgi_param HTTPS on;
         fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
     }
+    location = /salad-ingest.php {
+        client_max_body_size 20k;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root/salad-ingest.php;
+        fastcgi_param HTTPS on;
+        fastcgi_pass unix:/run/php/php8.4-fpm-hache-miner.sock;
+    }
     location ~ \.php$ { return 404; }
     location ~ /\. { return 404; }
 }
