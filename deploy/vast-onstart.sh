@@ -57,7 +57,7 @@ if ! command -v flock >/dev/null; then
   exit 1
 fi
 
-mkdir -p /run/lock /var/log
+mkdir -p -- "$(dirname -- "$lock")" "$(dirname -- "$miner_log")"
 exec 9>"$lock"
 if ! flock -n 9; then
   say 'A startup attempt is already in progress.'
