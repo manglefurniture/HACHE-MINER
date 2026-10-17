@@ -45,6 +45,9 @@ relativas. La configuración no ejecuta contenido como shell.
 El hook no almacena credenciales ni wallets. Usa el lanzador configurado,
 anexa logs y tiene protección contra arranques simultáneos. El nombre del
 proceso se deriva de la ruta del binario configurada para detectar duplicados.
+Para evitar coincidencias ambiguas de `pgrep -x`, el nombre del ejecutable debe
+tener de 1 a 15 caracteres ASCII alfanuméricos, guion o guion bajo; otras
+variantes se rechazan antes de iniciar el minero.
 
 Fuentes Vast:
 https://github.com/vast-ai/docs/blob/main/guides/reference/faq/instances.mdx
