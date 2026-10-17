@@ -43,6 +43,43 @@ de telemetría, que puede empezar a ejecutarse en un cron activo.
    `/etc/hache-vast/ingest.key` con permisos 0600. Nunca imprimirla ni
    añadirla a Git. `python3`, `flock`, `cron`, `nvidia-smi` disponibles.
 
+## Puerta obligatoria antes del primer arranque de minería
+
+No alquilar una instancia de prueba ni arrancar el minero hasta confirmar que
+la ruta completa de telemetría se puede preparar. Antes de alquilar, verificar
+que existe una conexión autorizada y utilizable al VPS HACHE-MINER, que el
+método permitido para operar una nueva instancia Vast está disponible, que se
+conoce la ubicación/configuración privada real de la clave compartida en el
+VPS (el onboarding usa `/etc/hache-miner/vast-ingest.key` como ejemplo), y que
+el operador autorizado podrá transferirla de forma segura. La clave nunca se
+solicita por chat, se imprime ni se pasa como argumento.
+
+Después de crear/alquilar la instancia y confirmar su identidad real, seguir
+este orden **antes de iniciar SRBMiner**:
+
+1. Registrar/preparar la fila de `vast_instances` para el ID real, número de
+   GPU y tarifa confirmada usando el procedimiento autorizado del VPS.
+2. Crear el manifiesto privado y colocar la clave root-only `0600` en la
+   instancia por el canal aprobado. Revisar wallet/worker, SHA-256, endpoint,
+   log y conteo de GPU.
+3. Ejecutar `--check`; corregir cualquier fallo. Luego, con autorización
+   específica para aplicar en ese host, ejecutar `--apply` y confirmar que
+   quedaron el JSON, la clave, el colector y el cron.
+4. Solo después iniciar el minero. El preparador se niega a aplicar cuando el
+   minero ya está activo; por eso no se debe empezar minería manualmente y
+   esperar añadir el colector después.
+5. Ejecutar el colector una vez y exigir `202 Accepted`. Después confirmar dos
+   ejecuciones del cron y dos muestras recientes por GPU en HACHE-MINER; por
+   último verificar VAST-002 y la notificación de prueba según
+   `docs/VAST_INSTANCE_ONBOARDING_RULE.md`.
+
+Si falta el canal, la clave, la configuración de la fila VPS o la posibilidad
+de aplicar antes del arranque, parar y marcar **PENDIENTE/NO LISTA**. Una share
+aceptada por Kryptex solo confirma el pool; no confirma la telemetría HACHE-MINER.
+No cambiar a otro host SSH o método de ejecución para sortear un bloqueo. Si la
+instancia ya está minando sin colector, informar que puede seguir facturando y
+no declararla protegida.
+
 ## Manifiesto privado por host
 
 Crear `/etc/hache-vast/instance.json` como archivo regular de **root** modo
@@ -71,6 +108,11 @@ las identidades operativas. Nunca versionarlo, copiarlo en tickets públicos
 ni enviarlo al chat.
 
 ## Ejecución en una instancia explícitamente autorizada
+
+La automatización comienza **después** de suministrar una identidad real, un
+manifiesto válido, la clave privada y un checkout aprobado. No obtiene la clave,
+no crea la fila del VPS ni alquila la instancia. `--apply` instala archivos y
+cron, pero no arranca minería.
 
 Desde la carpeta `deploy/` de un commit aprobado:
 
@@ -114,3 +156,6 @@ aplicar, no crea registros en el VPS y no promete autorreinicio ante caída.
 El coste de una instancia ya alquilada puede continuar aunque no esté minando.
 Consultar también `docs/VAST_INSTANCE_ONBOARDING_RULE.md` y
 `docs/VAST_WATCHDOG_ALERTS.md`.
+
+Para la revisión local desde Windows y el procedimiento permitido tras un
+bloqueo de ejecución remota, consultar `docs/VAST_WINDOWS_OPERATOR_RUNBOOK.md`.

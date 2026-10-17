@@ -6,6 +6,26 @@
 
 **Principio:** *Una instancia no está operativa hasta que mina a la billetera aprobada, comparte shares válidos y transmite telemetría por GPU a HACHE-MINER automáticamente.*
 
+## Puerta de preparación (bloqueante)
+
+Antes de cualquier alquiler de prueba, confirmar que el canal autorizado de
+acceso al VPS HACHE-MINER está identificado y funciona, que el método aprobado
+para operar la instancia Vast está disponible, que se conoce la ubicación o
+configuración privada real de la clave HMAC fuera del repositorio y se puede
+transferir de forma segura, y que está disponible el procedimiento autorizado
+para registrar la identidad real de la instancia. La ruta de ejemplo
+`/etc/hache-miner/vast-ingest.key` no se debe asumir como la configuración
+efectiva. Si falta cualquiera, no alquilar ni iniciar minería. Un permiso del
+usuario sin host/alias y credencial utilizables no completa esta puerta.
+
+Tras confirmar el ID real, preparar la fila del VPS, el manifiesto y los
+archivos privados; ejecutar `vast-instance-prepare.py --check` y, tras revisar,
+`--apply` **antes de arrancar SRBMiner**. `--apply` instala el cron de telemetría
+y rechaza un minero activo; no obtiene la clave ni crea el registro VPS. La
+minería puede comenzar solo cuando los cuatro archivos del colector estén
+instalados y verificados en la instancia. Una share de pool no cuenta como
+telemetría HACHE-MINER.
+
 ## A. Selección y autorización (antes de generar costos nuevos)
 
 - Reunir: modelo(s) GPU, cantidad, VRAM, límites de potencia y disponibilidad real, región y confiabilidad del host, versión de CUDA/driver, tarifa USD/h **total** (incluir costos adicionales de la oferta).

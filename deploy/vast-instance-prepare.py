@@ -110,6 +110,8 @@ def checks(m, bundle):
         raise ValueError("invalid private HMAC key")
 
     target = Path(m["miner_path"])
+    if target.is_symlink() or any(parent.is_symlink() for parent in target.parents):
+        raise ValueError("miner target or parent must not be a symlink")
     source = target if target.is_file() else Path(m.get("miner_source", ""))
     if not source.is_file() or source.is_symlink():
         raise ValueError("verified miner binary or miner_source is missing")
