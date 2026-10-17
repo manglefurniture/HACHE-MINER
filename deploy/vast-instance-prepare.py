@@ -192,8 +192,13 @@ def apply(m, source, bundle):
     files = list(prepared_files(m, bundle))
     # Preflight all destinations before creating anything.
     for dest, data, mode in files:
-        if dest.is_symlink() or (dest.exists() and (not dest.is_file() or dest.read_bytes() != data)):
-            raise ValueError(f"existing file differs: {dest}; manual backup/review required")
+        if dest.is_symlink() or any(parent.is_symlink() for parent in dest.parents):
+            raise ValueError(f"symlink destination/parent: {dest}; manual review required")
+        if dest.exists():
+            info = dest.lstat()
+            if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != mode
+                    or info.st_uid != os.geteuid() or dest.read_bytes() != data):
+                raise ValueError(f"existing file is unsafe or differs: {dest}; manual backup/review required")
     if source != target:
         if target.exists() or target.is_symlink():
             raise ValueError("miner target already exists")
