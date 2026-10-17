@@ -13,6 +13,10 @@ cat >"$tmp/bin/pgrep" <<'MOCK'
 MOCK
 cat >"$tmp/bin/sleep" <<'MOCK'
 #!/usr/bin/env bash
+for _ in {1..20}; do
+  [[ -e "$VAST_TEST_STATE" ]] && exit 0
+  /usr/bin/sleep 0.05
+done
 exit 0
 MOCK
 cat >"$tmp/bin/mkdir" <<'MOCK'
