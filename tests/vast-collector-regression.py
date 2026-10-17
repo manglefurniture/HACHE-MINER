@@ -90,6 +90,23 @@ with tempfile.TemporaryDirectory() as tmp:
         settings, key = collector.private_collector_settings(conf)
         assert settings['instance_id'] == '12345'
         assert key == b'fake-unit-test-hmac-only'
+        # A key written with echo's trailing newline must be rejected.
+        with open(secret, 'wb') as fd:
+            fd.write(b'fake-unit-test-hmac-only\n')
+        try:
+            collector.private_collector_settings(conf)
+            raise AssertionError('LF terminated HMAC key accepted')
+        except ValueError:
+            pass
+        with open(secret, 'wb') as fd:
+            fd.write(b'fake-unit-test-hmac-only\r')
+        try:
+            collector.private_collector_settings(conf)
+            raise AssertionError('CR terminated HMAC key accepted')
+        except ValueError:
+            pass
+        with open(secret, 'wb') as fd:
+            fd.write(b'fake-unit-test-hmac-only')
         with mock.patch.object(collector, 'gpu_count_from_host', return_value=1):
             try:
                 collector.private_collector_settings(conf)
