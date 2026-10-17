@@ -43,6 +43,12 @@ for path in "$launcher" "$miner" "$miner_log" "$lock"; do
 done
 readonly launcher miner miner_log lock
 readonly miner_name=${miner##*/}
+# Linux process names (comm) are limited to 15 bytes. pgrep -x uses regex;
+# refuse names that could be truncated or interpreted as a pattern.
+if [[ ! "$miner_name" =~ ^[a-zA-Z0-9_-]{1,15}$ ]]; then
+  printf 'vast-onstart: unsupported miner executable basename (1-15 ASCII letters, digits, _ or - required)\n' >&2
+  exit 1
+fi
 
 say() {
   printf '[%s] vast-onstart: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
