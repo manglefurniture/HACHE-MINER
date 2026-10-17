@@ -88,4 +88,17 @@ if bash "$tmp/onstart.sh" >/dev/null 2>&1; then
   exit 1
 fi
 
+# A process name outside Linux's comm limit or with regex characters must
+# fail before pgrep, even if the alternative binary exists and is executable.
+for unsupported_name in 'miner-name-longer-than-15' 'miner.with.dot'; do
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tmp/opt/$unsupported_name"
+  chmod 0700 "$tmp/opt/$unsupported_name"
+  sed -i "s|^VAST_MINER=.*|VAST_MINER=$tmp/opt/$unsupported_name|" "$tmp/etc/hache-vast/onstart.conf"
+  output="$(bash "$tmp/onstart.sh" 2>&1)" && {
+    echo "unsupported miner process name accepted: $unsupported_name" >&2
+    exit 1
+  }
+  grep -q 'unsupported miner executable basename' <<<"$output"
+done
+
 echo 'vast onstart regression ok'
