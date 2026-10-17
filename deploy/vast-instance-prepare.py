@@ -157,11 +157,13 @@ def prepared_files(m, bundle):
 
 def stage_file(path, data, mode):
     """Never silently overwrite a preexisting custom configuration."""
-    if path.is_symlink():
-        raise ValueError(f"refusing symlink destination: {path}")
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+        raise ValueError(f"refusing symlink destination or parent: {path}")
     if path.exists():
-        if not path.is_file() or path.read_bytes() != data:
-            raise ValueError(f"refusing to overwrite existing file: {path}")
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != mode
+                or info.st_uid != os.geteuid() or path.read_bytes() != data):
+            raise ValueError(f"refusing unsafe or different existing file: {path}")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, pending = tempfile.mkstemp(prefix=".hache-vast-", dir=str(path.parent))
