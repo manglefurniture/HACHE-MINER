@@ -23,7 +23,7 @@
 
 ## C. Arranque y resiliencia
 
-- Instalar un `/root/onstart.sh` apropiado **a la nueva instancia**, con respaldo, `bash -n`, permisos `0700`, detección del ejecutable y lanzador correctos, `flock` y verificación del proceso existente antes de lanzar. El `deploy/vast-onstart.sh` actual está **ligado al lanzador de la prueba 5090x2**: debe parametrizarse o adaptarse de forma versionada y ensayada antes de reutilizarse.
+- Instalar un `/root/onstart.sh` apropiado **a la nueva instancia**, con respaldo, `bash -n`, permisos `0700`, detección del ejecutable y lanzador correctos, `flock` y verificación del proceso existente antes de lanzar. El hook `deploy/vast-onstart.sh` **ya es configurable** con `/etc/hache-vast/onstart.conf`; para preparar archivos y colector sin arrancar minería consultar `docs/VAST_PREPARATION.md`. Los defaults 5090x2 son solo compatibilidad, nunca identidad de una instancia nueva.
 - Habilitar `cron` para telemetría. No asumir que está arrancado: comprobar `pgrep -x cron` y que vuelva a arrancar con la instancia. No probar con `reboot` o detener GPU activas.
 - No confundir «arranque al encender instancia» con «recuperación si SRBMiner muere mientras permanece encendida». Lo segundo requiere supervisión independiente, límites de reinicio y autorización explícita.
 
