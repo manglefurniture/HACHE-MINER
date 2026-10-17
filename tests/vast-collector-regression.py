@@ -64,4 +64,55 @@ with tempfile.TemporaryDirectory() as tmp:
     except ValueError:
         pass
 
+
+# New managed mode reads a root-only JSON file and a separate HMAC key file.
+from unittest import mock
+import json
+import stat
+from types import SimpleNamespace
+
+with tempfile.TemporaryDirectory() as tmp:
+    conf = os.path.join(tmp, 'collector.json')
+    secret = os.path.join(tmp, 'ingest.key')
+    with open(secret, 'wb') as fd:
+        fd.write(b'fake-unit-test-hmac-only')
+    with open(conf, 'w') as fd:
+        json.dump({
+            'instance_id': '12345',
+            'gpu_count': 2,
+            'miner_log': os.path.join(tmp, 'miner.log'),
+            'ingest_url': 'https://miner.hacheinteractive.com/vast-ingest',
+            'ingest_key_file': secret,
+        }, fd)
+    with mock.patch.object(collector.os, 'lstat', return_value=SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o600, st_uid=0)), \
+         mock.patch.object(collector, 'gpu_count_from_host', return_value=2):
+        settings, key = collector.private_collector_settings(conf)
+        assert settings['instance_id'] == '12345'
+        assert key == b'fake-unit-test-hmac-only'
+        with mock.patch.object(collector, 'gpu_count_from_host', return_value=1):
+            try:
+                collector.private_collector_settings(conf)
+                raise AssertionError('physical GPU mismatch accepted')
+            except ValueError:
+                pass
+        with open(conf, 'r+') as fd:
+            value = json.load(fd)
+            value['unknown'] = 1
+            fd.seek(0)
+            json.dump(value, fd)
+            fd.truncate()
+        try:
+            collector.private_collector_settings(conf)
+            raise AssertionError('unknown private config key accepted')
+        except ValueError:
+            pass
+    with mock.patch.object(collector.os, 'lstat', return_value=SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o644, st_uid=0)):
+        try:
+            collector.private_collector_settings(conf)
+            raise AssertionError('insecure private config mode accepted')
+        except ValueError:
+            pass
+
 print('vast collector regression ok')
