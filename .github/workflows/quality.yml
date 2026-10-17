@@ -22,6 +22,8 @@ jobs:
         run: find app public bin tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Bootstrap scripts syntax
         run: bash -n deploy/*.sh
+      - name: Vast onstart regression
+        run: bash tests/vast-onstart-regression.sh
       - name: Security regression
         run: |
           php tests/core-regression.php
