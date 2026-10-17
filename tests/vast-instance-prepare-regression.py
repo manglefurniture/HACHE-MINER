@@ -85,6 +85,12 @@ with tempfile.TemporaryDirectory() as folder:
     assert stat.S_IMODE(dest.stat().st_mode) == 0o600
     mod.stage_file(dest, b"config-v1", 0o600)
     expect_reject(lambda: mod.stage_file(dest, b"config-v2", 0o600), "overwrite allowed")
+    dest.chmod(0o644)
+    expect_reject(lambda: mod.stage_file(dest, b"config-v1", 0o600), "unsafe permissions accepted")
+    dest.chmod(0o600)
+    linked_parent = root / "linked-directory"
+    linked_parent.symlink_to(dest.parent, target_is_directory=True)
+    expect_reject(lambda: mod.stage_file(linked_parent / "new", b"conf", 0o600), "symlink parent accepted")
     linked = root / "linked"
     linked.symlink_to(dest)
     expect_reject(lambda: mod.stage_file(linked, b"config-v1", 0o600), "symlink allowed")
