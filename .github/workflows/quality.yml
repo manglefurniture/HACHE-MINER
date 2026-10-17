@@ -24,6 +24,10 @@ jobs:
         run: bash -n deploy/*.sh
       - name: Vast onstart regression
         run: bash tests/vast-onstart-regression.sh
+      - name: Vast managed preparation and collector regressions
+        run: |
+          python3 -m py_compile deploy/vast-instance-prepare.py deploy/vast-collector.py
+          python3 tests/vast-instance-prepare-regression.py
       - name: Security regression
         run: |
           php tests/core-regression.php
