@@ -1,8 +1,11 @@
-# VAST-001 — runbook local Windows y prueba futura autorizada
+# VAST-001 — runbook Windows y prueba autorizada
 
-Este runbook organiza la preparación desde Windows sin contratar ni modificar
-instancias. Las pruebas de esta fase son locales y simuladas. No incluye una
-conexión real a Vast.ai.
+Este runbook ordena la preparación local y las pruebas autorizadas en Vast.ai.
+Las regresiones locales son simuladas y no prueban el receptor remoto. La prueba
+real del 2026-10-17 confirmó una share aceptada por Kryptex, pero la instancia
+no tenía configuración ni clave del colector: el éxito del pool se confundió
+con la validación completa de VAST-001. Esta diferencia queda como puerta
+bloqueante en el flujo siguiente.
 
 ## Lo revisado y lo que queda fuera
 
@@ -13,6 +16,10 @@ conexión real a Vast.ai.
   contenedor. No ejecutarlo como prueba en una instancia facturable.
 - `deploy/vast-collector.py` envía datos firmados al receptor HACHE-MINER. Un
   colector real necesita una clave y una instancia ya identificada.
+- `deploy/vast-instance-prepare.py` no obtiene la clave ni registra una fila en
+  el VPS. Su `--apply` instala el cron, puede iniciar envíos automáticos y se
+  niega a aplicar si el proceso minero ya está activo; debe ejecutarse antes
+  del primer arranque de SRBMiner.
 - Los scripts históricos de `C:\Users\hache\Documents\VAST-001` se
   conservaron intactos. `vast001.ps1` puede alquilar al usar `-Create`,
   programa stop/destroy, y el onstart antiguo descarga un minero, valida solo
@@ -20,6 +27,37 @@ conexión real a Vast.ai.
   de otra prueba y forma una orden de ejecución remota en una sola llamada SSH.
   No usar esos archivos para una nueva instancia; consultar su contenido antes
   de migrar cualquier dato.
+
+## Puerta de prueba real: antes de alquilar y antes de minar
+
+No contratar una prueba real hasta comprobar que la conexión autorizada al VPS
+HACHE-MINER funciona y que el método permitido para operar una nueva instancia
+Vast está disponible. Localizar y confirmar la ubicación/configuración privada
+real de la clave compartida en el VPS (el onboarding da
+`/etc/hache-miner/vast-ingest.key` como ejemplo), verificar que se puede
+transferir sin mostrarla y que hay un método autorizado para registrar el ID
+real en `vast_instances`. Un permiso de acceso no sustituye un alias/host y
+credencial técnicamente disponibles. No usar perfiles SSH de otra tarea.
+
+Después del alquiler, inventariar la instancia y preparar manifiesto, lanzador,
+clave y archivos. Ejecutar primero `--check`, revisar la salida y luego `--apply`
+con autorización para ese host **antes de arrancar el minero**. Comprobar que
+`/etc/hache-vast/collector.json`, `/etc/hache-vast/ingest.key`,
+`/opt/hache-vast/vast-collector.py` y `/etc/cron.d/hache-vast-collector` están
+instalados con permisos correctos. Solo entonces arrancar SRBMiner.
+
+La aceptación de shares en Kryptex y la telemetría HACHE-MINER son verificaciones
+separadas. Para telemetría, exigir una ejecución manual del colector con
+respuesta `202 Accepted`, dos ciclos del cron y dos muestras frescas por GPU
+visibles en HACHE-MINER. Después completar los controles del watchdog VAST-002
+y la notificación de prueba. Si falta cualquiera, estado **PENDIENTE/NO LISTA**
+o **MINANDO SIN ALERTAS**, nunca prueba terminada/protegida. No repetir llamadas
+por otro canal si la ejecución es bloqueada; solicitar el canal permitido.
+
+Si la prueba ya se alquiló y el minero arrancó sin colector, no intentar `--apply`
+con SRBMiner activo ni matar/reiniciar el proceso para forzarlo. Informar que la
+instancia puede seguir facturando, dejarla sin certificar y seguir el paso de
+revisión/autorización antes de cualquier cambio.
 
 ## Conexión SSH y bloqueo de ejecución remota
 
