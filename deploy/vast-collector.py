@@ -4,11 +4,13 @@
 The miner must already be running. This collector never starts/stops/tunes it.
 Install as a periodic task on the Vast instance, not on the Hache VPS.
 """
+import argparse
 import hashlib
 import hmac
 import json
 import os
 import re
+import stat
 import subprocess
 import time
 import uuid
@@ -99,15 +101,62 @@ def gpu_count_from_host():
     return sum(bool(re.match(r'^GPU \d+:', line)) for line in output.splitlines())
 
 
+def _read_private_file(path):
+    if not isinstance(path, str) or not path.startswith('/') or '\n' in path:
+        raise ValueError("private file path must be absolute")
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
+        raise ValueError("private file must be regular, root-owned, and mode 0600")
+    with open(path, 'rb') as handle:
+        return handle.read(8193)
+
+
+def private_collector_settings(path):
+    """Fail closed for new per-instance configuration; legacy env mode remains."""
+    body = _read_private_file(path)
+    if len(body) > 8192:
+        raise ValueError("collector configuration too large")
+    values = json.loads(body.decode('utf-8'))
+    expected = {'instance_id', 'gpu_count', 'miner_log', 'ingest_url', 'ingest_key_file'}
+    if not isinstance(values, dict) or set(values) != expected:
+        raise ValueError("invalid collector configuration keys")
+    if not isinstance(values['instance_id'], str) or not re.fullmatch(r'[1-9][0-9]*', values['instance_id']):
+        raise ValueError("invalid Vast instance id")
+    if type(values['gpu_count']) is not int or not 1 <= values['gpu_count'] <= 16:
+        raise ValueError("invalid GPU count")
+    if values['ingest_url'] != 'https://miner.hacheinteractive.com/vast-ingest':
+        raise ValueError("unapproved ingest endpoint")
+    log = values['miner_log']
+    if not isinstance(log, str) or not log.startswith('/') or '\n' in log:
+        raise ValueError("invalid miner log path")
+    key = _read_private_file(values['ingest_key_file'])
+    if not 1 <= len(key) <= 4096 or b'\n' in key or b'\r' in key:
+        raise ValueError("invalid private HMAC key")
+    if gpu_count_from_host() != values['gpu_count']:
+        raise ValueError("configured GPU count differs from physical GPUs")
+    return values, key
+
+
 def main():
-    url = os.environ['HACHE_VAST_INGEST_URL']
-    if not url.startswith('https://'):
-        raise ValueError("Vast ingest must use HTTPS")
-    key = os.environ['HACHE_VAST_INGEST_KEY'].encode()
-    instance = os.environ['HACHE_VAST_INSTANCE_ID']
-    log = os.environ.get('HACHE_SRBMINER_LOG', '/var/log/prl-miner.log')
-    configured_count = os.environ.get('HACHE_VAST_GPU_COUNT')
-    count = int(configured_count) if configured_count else gpu_count_from_host()
+    parser = argparse.ArgumentParser(description='Signed per-GPU telemetry for Vast')
+    parser.add_argument('--config', help='root-owned 0600 per-instance collector JSON')
+    args = parser.parse_args()
+    if args.config:
+        settings, key = private_collector_settings(args.config)
+        url = settings['ingest_url']
+        instance = settings['instance_id']
+        log = settings['miner_log']
+        count = settings['gpu_count']
+    else:
+        # Backward compatibility for already-configured collectors.
+        url = os.environ['HACHE_VAST_INGEST_URL']
+        if not url.startswith('https://'):
+            raise ValueError("Vast ingest must use HTTPS")
+        key = os.environ['HACHE_VAST_INGEST_KEY'].encode()
+        instance = os.environ['HACHE_VAST_INSTANCE_ID']
+        log = os.environ.get('HACHE_SRBMINER_LOG', '/var/log/prl-miner.log')
+        configured_count = os.environ.get('HACHE_VAST_GPU_COUNT')
+        count = int(configured_count) if configured_count else gpu_count_from_host()
     payload = parse_gpu_table(read_recent_log(log), count)
     payload.update({
         'instance_id': instance,

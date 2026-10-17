@@ -52,6 +52,10 @@ variantes se rechazan antes de iniciar el minero.
 Fuentes Vast:
 https://github.com/vast-ai/docs/blob/main/guides/reference/faq/instances.mdx
 
+Para preparar archivos y el colector por instancia de forma controlada, consultar
+`docs/VAST_PREPARATION.md`. Su modo `--apply` requiere autorización específica;
+no constituye permiso de alquiler ni de arranque del minero.
+
 ## Límites y recuperación
 
 - Esta etapa cubre el arranque al iniciar la instancia, NO recuperación automática
