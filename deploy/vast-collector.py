@@ -102,7 +102,7 @@ def gpu_count_from_host():
 
 
 def _read_private_file(path):
-    if not isinstance(path, str) or not path.startswith('/') or '\\n' in path:
+    if not isinstance(path, str) or not path.startswith('/') or '\n' in path:
         raise ValueError("private file path must be absolute")
     info = os.lstat(path)
     if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
@@ -127,10 +127,10 @@ def private_collector_settings(path):
     if values['ingest_url'] != 'https://miner.hacheinteractive.com/vast-ingest':
         raise ValueError("unapproved ingest endpoint")
     log = values['miner_log']
-    if not isinstance(log, str) or not log.startswith('/') or '\\n' in log:
+    if not isinstance(log, str) or not log.startswith('/') or '\n' in log:
         raise ValueError("invalid miner log path")
     key = _read_private_file(values['ingest_key_file'])
-    if not 1 <= len(key) <= 4096 or b'\\n' in key or b'\\r' in key:
+    if not 1 <= len(key) <= 4096 or b'\n' in key or b'\r' in key:
         raise ValueError("invalid private HMAC key")
     if gpu_count_from_host() != values['gpu_count']:
         raise ValueError("configured GPU count differs from physical GPUs")
