@@ -88,6 +88,9 @@ if bash "$tmp/onstart.sh" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Remove the intentionally invalid relative log setting from the prior test.
+sed -i '$d' "$tmp/etc/hache-vast/onstart.conf"
+
 # A process name outside Linux's comm limit or with regex characters must
 # fail before pgrep, even if the alternative binary exists and is executable.
 for unsupported_name in 'miner-name-longer-than-15' 'miner.with.dot'; do
