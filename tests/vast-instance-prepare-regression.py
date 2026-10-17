@@ -71,6 +71,9 @@ with tempfile.TemporaryDirectory() as folder:
          mock.patch.object(mod.shutil, "which", return_value="/usr/bin/tool"), \
          mock.patch.object(mod.subprocess, "check_output", return_value="GPU 0: Mock\nGPU 1: Mock\n"):
         assert mod.checks(manifest, source.parent) == artifact
+        miner.symlink_to(artifact)
+        expect_reject(lambda: mod.checks(manifest, source.parent), "symlinked miner target accepted")
+        miner.unlink()
         with mock.patch.object(mod.subprocess, "check_output", return_value="GPU 0: Mock\n"):
             expect_reject(lambda: mod.checks(manifest, source.parent), "GPU count mismatch accepted")
         with mock.patch.dict(manifest, miner_sha256="0" * 64):

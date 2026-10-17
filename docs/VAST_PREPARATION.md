@@ -114,3 +114,6 @@ aplicar, no crea registros en el VPS y no promete autorreinicio ante caída.
 El coste de una instancia ya alquilada puede continuar aunque no esté minando.
 Consultar también `docs/VAST_INSTANCE_ONBOARDING_RULE.md` y
 `docs/VAST_WATCHDOG_ALERTS.md`.
+
+Para la revisión local desde Windows y el procedimiento permitido tras un
+bloqueo de ejecución remota, consultar `docs/VAST_WINDOWS_OPERATOR_RUNBOOK.md`.
