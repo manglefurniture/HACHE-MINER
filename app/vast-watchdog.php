@@ -61,8 +61,9 @@ function miner_vast_wd_classify(array $instance, array $samples, array $gpuRows,
     $normal=(float)($instance['normal_ths']??0);
     if ($low>0 && $normal>=$low) {
         $recent=array_slice($samples,0,3);
-        $continuous=count($recent)===3;
-        for ($n=0;$continuous && $n<3;$n++) {
+        $needed=$previousCode==='hashrate_low'?2:3;
+        $continuous=count($recent)>=$needed;
+        for ($n=0;$continuous && $n<$needed;$n++) {
             $at=miner_vast_wd_unix($recent[$n]['observed_at']??null);
             if ($at===0 || $now-$at>180 || $at>$now+45 || !isset($recent[$n]['total_ths'])) {
                 $continuous=false;
@@ -78,7 +79,7 @@ function miner_vast_wd_classify(array $instance, array $samples, array $gpuRows,
                 if ((float)$recent[0]['total_ths']<$normal || (float)$recent[1]['total_ths']<$normal) {
                     return ['code'=>'hashrate_low','severity'=>'yellow','reason'=>'Hashrate sin recuperar el umbral normal de '.number_format($normal,2,'.','').' TH/s'];
                 }
-            } elseif (array_reduce($recent,static fn(bool $all,array $s):bool=>$all && (float)$s['total_ths']<$low,true)) {
+            } elseif (array_reduce(array_slice($recent,0,3),static fn(bool $all,array $s):bool=>$all && (float)$s['total_ths']<$low,true)) {
                 return ['code'=>'hashrate_low','severity'=>'yellow','reason'=>'Hashrate bajo '.number_format($low,2,'.','').' TH/s en tres lecturas consecutivas'];
             }
         } elseif ($previousCode==='hashrate_low') {
