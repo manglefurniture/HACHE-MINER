@@ -48,6 +48,8 @@ $halfRecover=$lowRows;$halfRecover[0]['total_ths']=765;
 wd_assert(miner_vast_wd_classify($lowInstance,$halfRecover,$g,$now,'hashrate_low')['code']==='hashrate_low','one normal sample insufficient');
 $fullRecover=$halfRecover;$fullRecover[1]['total_ths']=770;
 wd_assert(miner_vast_wd_classify($lowInstance,$fullRecover,$g,$now,'hashrate_low')['code']==='ok','two normal samples recover');
+$oldThird=$fullRecover;$oldThird[2]['observed_at']='2026-10-15 22:18:30';
+wd_assert(miner_vast_wd_classify($lowInstance,$oldThird,$g,$now,'hashrate_low')['code']==='ok','recovery ignores stale third sample');
 $disabled=$lowInstance;$disabled['low_ths']=0;
 wd_assert(miner_vast_wd_classify($disabled,$lowRows,$g,$now)['code']==='ok','threshold disabled');
 $gap=$lowRows;$gap[2]['observed_at']='2026-10-15 22:22:30';
