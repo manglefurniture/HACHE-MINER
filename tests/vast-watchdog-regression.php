@@ -35,6 +35,25 @@ for($n=0;$n<12;$n++){
 wd_assert(miner_vast_wd_classify($i,$history,$g,$now)['code']==='shares_stalled','no new shares 10 minutes');
 $history[0]['accepted_shares']=51;
 wd_assert(miner_vast_wd_classify($i,$history,$g,$now)['code']==='ok','new shares clear alert');
+$lowInstance=$i;
+$lowInstance['low_ths']=740;
+$lowInstance['normal_ths']=760;
+$s2=wd_sample(48,'2026-10-15 22:27:30','2026-10-15 22:27:30',94,735);
+$low0=wd_sample(50,$recent,$recent,100,710);
+$low1=wd_sample(49,$prior,$prior,95,720);
+$lowRows=[$low0,$low1,$s2];
+wd_assert(miner_vast_wd_classify($lowInstance,$lowRows,$g,$now)['code']==='hashrate_low','three low samples trigger');
+wd_assert(miner_vast_wd_classify($lowInstance,array_slice($lowRows,0,2),$g,$now)['code']==='ok','two low samples insufficient');
+$halfRecover=$lowRows;$halfRecover[0]['total_ths']=765;
+wd_assert(miner_vast_wd_classify($lowInstance,$halfRecover,$g,$now,'hashrate_low')['code']==='hashrate_low','one normal sample insufficient');
+$fullRecover=$halfRecover;$fullRecover[1]['total_ths']=770;
+wd_assert(miner_vast_wd_classify($lowInstance,$fullRecover,$g,$now,'hashrate_low')['code']==='ok','two normal samples recover');
+$oldThird=$fullRecover;$oldThird[2]['observed_at']='2026-10-15 22:18:30';
+wd_assert(miner_vast_wd_classify($lowInstance,$oldThird,$g,$now,'hashrate_low')['code']==='ok','recovery ignores stale third sample');
+$disabled=$lowInstance;$disabled['low_ths']=0;
+wd_assert(miner_vast_wd_classify($disabled,$lowRows,$g,$now)['code']==='ok','threshold disabled');
+$gap=$lowRows;$gap[2]['observed_at']='2026-10-15 22:22:30';
+wd_assert(miner_vast_wd_classify($lowInstance,$gap,$g,$now)['code']==='ok','stale sample ignored');
 wd_assert(miner_vast_wd_unix('2026-10-15 22:29:30')===$now-30,'UTC timestamps');
 $dir=sys_get_temp_dir().'/vast-watchdog-'.bin2hex(random_bytes(5));mkdir($dir,0700);
 try {
