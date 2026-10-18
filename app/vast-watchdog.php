@@ -20,7 +20,7 @@ function miner_vast_wd_unix(mixed $date): int {
  * instance and GPU lists indexed by database sample ID.
  * @return array{code:string,severity:string,reason:string}
  */
-function miner_vast_wd_classify(array $instance, array $samples, array $gpuRows, int $now): array {
+function miner_vast_wd_classify(array $instance, array $samples, array $gpuRows, int $now, string $previousCode='ok'): array {
     $healthy=['code'=>'ok','severity'=>'green','reason'=>'Minería y telemetría en observación'];
     $last=$samples[0]??null;
     $registered=miner_vast_wd_unix($instance['updated_at']??null);
@@ -54,6 +54,35 @@ function miner_vast_wd_classify(array $instance, array $samples, array $gpuRows,
                     return ['code'=>'gpu_zero_'.$index,'severity'=>'red','reason'=>'GPU #'.$index.' con 0 TH/s en dos lecturas consecutivas'];
                 }
             }
+        }
+    }
+    // Instance-specific, disabled by default; 3 consecutive recent observations.
+    $low=(float)($instance['low_ths']??0);
+    $normal=(float)($instance['normal_ths']??0);
+    if ($low>0 && $normal>=$low) {
+        $recent=array_slice($samples,0,3);
+        $continuous=count($recent)===3;
+        for ($n=0;$continuous && $n<3;$n++) {
+            $at=miner_vast_wd_unix($recent[$n]['observed_at']??null);
+            if ($at===0 || $now-$at>180 || $at>$now+45 || !isset($recent[$n]['total_ths'])) {
+                $continuous=false;
+                break;
+            }
+            if ($n>0) {
+                $priorAt=miner_vast_wd_unix($recent[$n-1]['observed_at']??null);
+                if ($priorAt-$at<1 || $priorAt-$at>150) $continuous=false;
+            }
+        }
+        if ($continuous) {
+            if ($previousCode==='hashrate_low') {
+                if ((float)$recent[0]['total_ths']<$normal || (float)$recent[1]['total_ths']<$normal) {
+                    return ['code'=>'hashrate_low','severity'=>'yellow','reason'=>'Hashrate sin recuperar el umbral normal de '.number_format($normal,2,'.','').' TH/s'];
+                }
+            } elseif (array_reduce($recent,static fn(bool $all,array $s):bool=>$all && (float)$s['total_ths']<$low,true)) {
+                return ['code'=>'hashrate_low','severity'=>'yellow','reason'=>'Hashrate bajo '.number_format($low,2,'.','').' TH/s en tres lecturas consecutivas'];
+            }
+        } elseif ($previousCode==='hashrate_low') {
+            return ['code'=>'hashrate_low','severity'=>'yellow','reason'=>'Esperando muestras para confirmar recuperación'];
         }
     }
     // Stalled share counter: require a continuous ~10min window, plausible
@@ -97,7 +126,7 @@ function miner_vast_wd_ntfy(string $topic, string $title, string $body, string $
 function miner_vast_wd_snapshot(): array {
     $db=miner_db();
     if (!miner_vast_schema_ready()) throw new RuntimeException('Vast telemetry tables missing');
-    $instances=$db->query('SELECT instance_id,label,gpu_count,hourly_usd,updated_at FROM vast_instances WHERE enabled=1 ORDER BY instance_id')->fetchAll();
+    $instances=$db->query('SELECT instance_id,label,gpu_count,hourly_usd,low_ths,normal_ths,updated_at FROM vast_instances WHERE enabled=1 ORDER BY instance_id')->fetchAll();
     $sample=$db->prepare('SELECT id,observed_at,received_at,total_ths,accepted_shares,rejected_shares FROM vast_samples WHERE instance_id=? ORDER BY observed_at DESC,id DESC LIMIT 20');
     $gpus=$db->prepare('SELECT gpu_index,hashrate_ths FROM vast_gpu_samples WHERE sample_id=? ORDER BY gpu_index');
     $result=[];
@@ -124,9 +153,9 @@ function miner_vast_wd_run(array $snapshots, string $stateFile, string $topic, i
         $i=$snapshot['instance'];
         $id=(string)$i['instance_id'];$active[$id]=true;
         if (!preg_match('/^[0-9]{4,64}$/D',$id)) throw new RuntimeException('Invalid Vast instance');
-        $a=miner_vast_wd_classify($i,$snapshot['samples'],$snapshot['gpus'],$now);
-        $code=$a['code'];
         $old=(string)($previous[$id]['code']??'ok');
+        $a=miner_vast_wd_classify($i,$snapshot['samples'],$snapshot['gpus'],$now,$old);
+        $code=$a['code'];
         if ($code!=='ok')$issues++;
         if ($old===$code) continue;
         $name=mb_substr(preg_replace('/[\x00-\x1f\x7f]/u',' ',(string)($i['label']??'Vast'))??'Vast',0,80);
