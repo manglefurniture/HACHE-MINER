@@ -191,8 +191,10 @@ def validate_private_config(policy,raw):
         if not isinstance(r,dict) or set(r)!=RECIPE_FIELDS:
             raise Rejected('invalid_miner_recipe')
         if (r['instance_id']!=policy['instance_id'] or
-                str(r['machine_id'])!=str(policy['machine_id']) or
-                str(r['host_id'])!=str(policy['host_id']) or
+                type(r['machine_id']) is not str or
+                r['machine_id']!=str(policy['machine_id']) or
+                type(r['host_id']) is not str or
+                r['host_id']!=str(policy['host_id']) or
                 type(r['gpu_count']) is not int or
                 r['gpu_count']!=policy['gpu_count']):
             raise Rejected('wrong_target_identity')
@@ -250,7 +252,7 @@ def apply(policy,base=BASE,private=PRIVATE,runner=subprocess.run):
         raise Rejected('release_not_staged')
     for name,sha in policy['files'].items():
         file=path/name
-        if file.is_symlink() or blob_sha(private_file(file))!=sha:
+        if file.is_symlink() or blob_sha(private_file(file,max_bytes=300000))!=sha:
             raise Rejected('release_tampered')
     private_file(Path(private)/'ingest.key')
     private_file(Path(private)/'approved-recipe.json')
