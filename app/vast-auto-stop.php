@@ -12,22 +12,22 @@ function miner_vast_stop_reason(array $instance, array $samples, int $now, int $
     $observed=miner_vast_wd_unix($recent['observed_at']??null);
     if ($received<=0 || $observed<=0 || $observed>$now+45 ||
         $now-$received>=180 || $now-$observed>=180) return 'telemetry_lost';
-    // 3 independent, approximately 30-second samples spanning >= 60 seconds:
-    // confirmed below threshold over the 90-second observation window.
-    if(count($samples)<3) return null;
-    $three=array_slice($samples,0,3);
+    // 4 independent, approximately 30-second samples spanning >= 90 seconds.
+    if(count($samples)<4) return null;
+    $three=array_slice($samples,0,4);
     $times=[];
     foreach($three as $s) {
         $at=miner_vast_wd_unix($s['observed_at']??null);
         $rx=miner_vast_wd_unix($s['received_at']??null);
-        if($at<=0 || $at>$now+45 || $now-$at>=120 || $rx<=0 || $now-$rx>=120 ||
+        if($at<=0 || $at>$now+45 || $now-$at>=150 || $rx<=0 || $now-$rx>=150 ||
             !isset($s['total_ths']) || !is_numeric($s['total_ths']) ||
             !is_finite((float)$s['total_ths']) || (float)$s['total_ths']>=2800) return null;
         $times[]=$at;
     }
     if($times[0]-$times[1]<20 || $times[0]-$times[1]>45 ||
        $times[1]-$times[2]<20 || $times[1]-$times[2]>45 ||
-       $times[0]-$times[2]<60) return null;
+       $times[2]-$times[3]<20 || $times[2]-$times[3]>45 ||
+       $times[0]-$times[3]<90) return null;
     return 'hashrate_low';
 }
 
