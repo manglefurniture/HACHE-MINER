@@ -21,7 +21,7 @@ ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 ROW = re.compile(
     r'^\s*(?:\[[^\]\r\n]{1,90}\]\s*)?(?:GPU\s*#?\d{1,2}\s+)?#(?P<index>\d{1,2})\s+'
     r'(?P<model>[A-Za-z][^\r\n]{2,119}?)\s+'
-    r'(?P<hash>\d+(?:\.\d+)?)\s+TH/s\s+'
+    r'(?P<hash>\d+(?:\.\d+)?)\s+(?P<unit>[KMGT]?H)/s\s+'
     r'(?P<watts>\d+(?:\.\d+)?)W.*?\s+'
     r'(?P<temp>\d+)C\s+\d+\s+\d+\s+'
     r'(?P<accepted>\d+)\s+(?P<rejected>\d+)\s+(?P<hw>\d+)\b',
@@ -43,13 +43,16 @@ def parse_gpu_table(text, expected_count):
         model = data['model'].strip()
         if re.search(r'\b(?:pool|total|average|worker|shares?)\b', model, re.I):
             continue
-        if float(data['hash']) > 20000 or float(data['watts']) > 1500 or int(data['temp']) > 150:
+        hashrate = float(data['hash']) * {
+            'H': 1e-12, 'KH': 1e-9, 'MH': 1e-6, 'GH': 1e-3, 'TH': 1,
+        }[data['unit'].upper()]
+        if hashrate > 20000 or float(data['watts']) > 1500 or int(data['temp']) > 150:
             continue
         found.append({
             'line': line_number,
             'index': int(data['index']),
             'model': model,
-            'hashrate_ths': float(data['hash']),
+            'hashrate_ths': hashrate,
             'watts': float(data['watts']),
             'temp_c': int(data['temp']),
             'accepted': int(data['accepted']),
