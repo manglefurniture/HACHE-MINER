@@ -45,10 +45,9 @@ python3 deploy/vast-auto-prepare.py --recipe /etc/hache-vast/approved-recipe.jso
 python3 deploy/vast-auto-prepare.py --recipe /etc/hache-vast/approved-recipe.json \
     --apply --confirm-instance 123456
 
-# Encender minero es un acto distinto que requiere autorización efectiva
-# y haber verificado la protección financiera del alquiler en VPS:
-python3 deploy/vast-auto-prepare.py --recipe /etc/hache-vast/approved-recipe.json \
-    --apply --start --confirm-instance 123456
+# Encender el minero es una operación SEPARADA, no admitida por
+# vast-auto-prepare.py. Se implementará mediante aprobación independiente,
+# siempre dentro del alquiler y del supervisor financiero autorizados.
 ```
 
 El instalador genera el lanzador para `pearlhash`, `--tls true`,
@@ -103,3 +102,19 @@ y transferir el paquete de commit, wallet aprobada y clave HMAC sin exponerlos
 en consola. Su identidad SSH debe validarse en vivo. La vía de aprobación
 de operaciones desde ChatGPT sin ConnectBot todavía no está finalizada.
 No presentar VAST-003 como end-to-end sin probarlo en una instancia autorizada.
+
+## Vinculación del paquete al repositorio GitHub
+
+Al transferir archivos de esta herramienta, el cliente de GPT Agent
+`vast_provision.py` verifica **cada Git blob SHA** contra un manifiesto
+administrativo root de un solo propósito. El manifiesto vincula commit,
+instancia, identidad física, relay SSH, acción `stage` **o** `apply`,
+y vigencia máxima de 15 minutos. No se acepta que el agente establezca
+por sí mismo los hashes de confianza. Se comprueba de nuevo el contenido
+de los archivos en la GPU antes de ejecutarlos.
+
+La autorización del paquete no autoriza `--start`: esa opción se
+eliminó por completo del instalador. Los metadatos de aprobación pueden
+ser legibles por `gpt-agent`, pero siempre serán propiedad de root,
+sin permisos de escritura para grupos u otros usuarios. No incorporan
+claves privadas, HMAC ni credenciales de Kryptex.
