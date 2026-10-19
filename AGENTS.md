@@ -66,3 +66,28 @@ autonomía de un modelo residente en el VPS.
 Guía técnica y límites: `manglefurniture/Hache-Base`,
 `extensions/mining-ops/ACCESS_GATEWAY.md`. No duplicar los timers ni los
 controladores existentes de Vast y Salad.
+
+## VAST-003 — instalación y alta automatizables
+
+Para cualquier GPU Vast de alquiler **ya expresamente autorizado**, usar la
+secuencia de `docs/VAST_AUTO_PROVISIONING.md`. No inventar el valor de la
+billetera, la URL, la versión ni las sumas SHA; deben estar explícitamente
+aprobadas. La preparación se realiza en el host con
+`deploy/vast-auto-prepare.py`, y aprovecha el instalador VAST-001 existente.
+El cliente SSH acotado de GPT Agent, en Hache-Base
+`extensions/mining-ops/vast_provision.py`, solo transfiere paquetes verificados
+y aplica la instalación para la instancia concreta una vez que Vast confirme
+su identidad y el usuario haya autorizado la acción.
+
+Para darla de alta en el VPS usar `vast.register`, acción del intermediario
+Hache-Base bajo **grant root de un solo uso** y validación de identidad en vivo,
+que delega en `app/vast-enrollment.php`; no usar SQL genérico ni editar una
+instancia existente conflictiva. El registro se hace con la GPU activa y
+conlleva `enabled=1` en el watchdog ya instalado. Exigir luego dos muestras
+frescas, nuevas shares aceptadas y prueba de ntfy recibida.
+
+El canal seguro para colocar receta privada/HMAC en una GPU recién alquilada
+y el circuito completo de aprobación desde ChatGPT **siguen pendientes**:
+no marcar el pipeline como autónomo end-to-end hasta probarlos. No contratar,
+arrancar ni apagar GPU a partir de estas instrucciones sin luz verde y
+presupuesto específicos.
