@@ -74,7 +74,7 @@ class ReceiverTests(unittest.TestCase):
             with patch.object(r.os,'geteuid',return_value=os.getuid()):
                 status=r.stage(p,tar.read_bytes(),base=root/'releases',owner_uid=os.getuid())
                 self.assertEqual(status,'staged')
-                self.assertEqual(r.stage(p,tar.read_bytes(),base=root/'releases'),'already_staged')
+                self.assertEqual(r.stage(p,tar.read_bytes(),base=root/'releases',owner_uid=os.getuid()),'already_staged')
                 self.assertEqual(list((root/'releases').glob('.stage-*')),[])
                 self.assertEqual({f.name:f.read_bytes() for f in (root/'releases'/('a'*40)).iterdir()},files)
                 (root/'releases'/('a'*40)/'vast-onstart.sh').write_text('tampered')
