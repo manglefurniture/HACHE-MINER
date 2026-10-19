@@ -230,13 +230,13 @@ def install_private(directory, files):
             out.write(data);out.flush();os.fsync(out.fileno())
 
 
-def configure(policy,payload,private=PRIVATE):
+def configure(policy,payload,private=PRIVATE,base=BASE):
     recipe,key=validate_private_config(policy,payload)
     binding={name:policy[name] if name not in ('machine_id','host_id') else str(policy[name])
              for name in BINDING_FIELDS}
     files={'approved-recipe.json':recipe,'ingest.key':key,
            'host-binding.json':(json.dumps(binding,sort_keys=True,separators=(',',':'))+'\n').encode()}
-    fd=lock_release()
+    fd=lock_release(base)
     try:
         install_private(private,files)
     finally:
@@ -245,7 +245,6 @@ def configure(policy,payload,private=PRIVATE):
 
 
 def apply(policy,base=BASE,private=PRIVATE,runner=subprocess.run):
-    from importlib.util import spec_from_file_location,module_from_spec
     path=Path(base)/policy['release_commit']
     if not path.is_dir() or path.is_symlink():
         raise Rejected('release_not_staged')
@@ -280,7 +279,7 @@ def dispatch(original,src,policy,*,base=BASE,private=PRIVATE):
     if action=='stage':
         return stage(policy,read_payload(src),base=base)
     if action=='configure':
-        return configure(policy,read_payload(src,16384),private=private)
+        return configure(policy,read_payload(src,16384),private=private,base=base)
     if src.read(1):
         raise Rejected('unexpected_stdin')
     return apply(policy,base=base,private=private)
