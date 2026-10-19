@@ -171,6 +171,7 @@ now = datetime(2026, 10, 19, 5, 10, 0, tzinfo=timezone.utc).timestamp()
 stamp = '[2026-10-19 05:09:30] '
 pane = '\n'.join(stamp + line(i, 410+i, 100+i, 0) for i in range(8))
 with _mock.patch.object(collector.subprocess, 'check_output', return_value=pane):
+    assert collector.tmux_observed_at(pane) == now - 30
     sample = collector.parse_gpu_table(collector.read_recent_tmux('ssh_tmux', now), 8)
     assert sample['total_ths'] > 3200
     try:

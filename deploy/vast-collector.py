@@ -107,6 +107,14 @@ def read_recent_tmux(session, now=None):
     )
     # SRBMiner prints timestamped statistics. A share alone does not refresh a
     # table; validate the timestamp of the LAST full table in the captured pane.
+    observed = tmux_observed_at(output)
+    if observed > now + 30 or now - observed > 120:
+        raise ValueError("stale tmux GPU statistics")
+    return output
+
+
+def tmux_observed_at(output):
+    """Keep the miner's observation time; re-capturing a pane is not a sample."""
     lines = output.splitlines()
     starts = [i for i, line in enumerate(lines) if ROW.search(ANSI.sub('', line)) and line.startswith('[')]
     if not starts:
@@ -115,10 +123,7 @@ def read_recent_tmux(session, now=None):
     stamp = re.search(r'\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]', lines[starts[-1]])
     if stamp is None:
         raise ValueError("missing GPU timestamp")
-    observed = datetime.strptime(stamp.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
-    if observed > now + 30 or now - observed > 120:
-        raise ValueError("stale tmux GPU statistics")
-    return output
+    return datetime.strptime(stamp.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
 
 
 def gpu_count_from_host():
@@ -192,11 +197,13 @@ def main():
     if args.tmux_session and args.config:
         raise ValueError('tmux session must be specified in private config')
     session = settings.get('tmux_session') if args.config else args.tmux_session
-    payload = parse_gpu_table(read_recent_tmux(session) if session else read_recent_log(log), count)
+    output = read_recent_tmux(session) if session else read_recent_log(log)
+    payload = parse_gpu_table(output, count)
+    observed = tmux_observed_at(output) if session else time.time()
     payload.update({
         'instance_id': instance,
         'sample_id': str(uuid.uuid4()),
-        'observed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'observed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(observed)),
     })
     raw = json.dumps(payload, separators=(',', ':')).encode()
     timestamp = str(int(time.time()))
