@@ -23,7 +23,7 @@ FIELDS = {
     "miner_path", "miner_sha256", "launcher_path", "wallet_worker",
     "miner_log", "ingest_key_file",
 }
-OPTIONAL = {"miner_source"}
+OPTIONAL = {"miner_source", "key_scheme"}
 
 
 def private_file(path):
@@ -65,6 +65,8 @@ def load_manifest(path):
         value = m["miner_source"]
         if not isinstance(value, str) or not value.startswith("/") or "\n" in value:
             raise ValueError("miner_source must be an absolute path")
+    if "key_scheme" in m and m["key_scheme"] != "instance-v1":
+        raise ValueError("invalid per-instance HMAC scheme")
     miner_name = Path(m["miner_path"]).name
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,15}", miner_name):
         raise ValueError("miner basename cannot be matched safely with pgrep")
@@ -139,6 +141,7 @@ def prepared_files(m, bundle, *, install_onstart=True):
         "miner_log": m["miner_log"],
         "ingest_url": INGEST,
         "ingest_key_file": m["ingest_key_file"],
+        **({"key_scheme":m["key_scheme"]} if "key_scheme" in m else {}),
     }, sort_keys=True) + "\n"
     cron = (
         "* * * * * root /usr/bin/flock -n /run/lock/hache-vast-collector.lock "
