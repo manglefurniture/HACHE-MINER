@@ -57,7 +57,7 @@ function miner_vast_enrollment_write(PDO $db,array $proposed): array {
             if((string)$old['machine_id']!==$proposed['machine_id']||
                (string)$old['host_id']!==$proposed['host_id']||
                (int)$old['gpu_count']!==$proposed['gpu_count']||
-               bccomp((string)$old['hourly_usd'],$proposed['hourly_usd'],6)!==0||
+               sprintf('%.6f',(float)$old['hourly_usd'])!==$proposed['hourly_usd']||
                (int)$old['enabled']!==1)
                 throw new DomainException('existing_instance_conflict');
             $db->commit();
