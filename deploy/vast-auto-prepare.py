@@ -26,6 +26,7 @@ MINER_PATH = '/opt/prl-srbminer/SRBMiner-MULTI'
 LAUNCHER = '/root/start-prl-vast.sh'
 MANIFEST = '/etc/hache-vast/instance.json'
 KEY_FILE = '/etc/hache-vast/ingest.key'
+BINDING = '/etc/hache-vast/host-binding.json'
 LOG_FILE = '/var/log/prl-miner.log'
 REQUIRED = {'instance_id', 'machine_id', 'host_id', 'gpu_count', 'hourly_usd',
             'wallet', 'pool_host', 'pool_port', 'miner_version',
@@ -180,9 +181,35 @@ def manifest_bytes(r, staged_binary):
     return (json.dumps(data, sort_keys=True)+'\n').encode()
 
 
+def check_vast_host_binding(r, prepare, filename=BINDING):
+    """Identity anchored by the separate, authenticated VPS SSH stage.
+
+    A recipe and --confirm-instance by themselves are NEVER an attestation.
+    The binding must be root-owned and provisioned only after a fresh Vast API
+    and pinned SSH endpoint verification by the trusted VPS deploy service.
+    """
+    path=prepare.private_file(filename)
+    raw=path.read_bytes()
+    if len(raw)>2048:
+        raise ValueError('host_binding_too_large')
+    b=json.loads(raw)
+    required={'instance_id','machine_id','host_id','gpu_count','ssh_host','ssh_port'}
+    if not isinstance(b,dict) or set(b)!=required:
+        raise ValueError('invalid_host_binding')
+    for field in ('instance_id','machine_id','host_id','gpu_count'):
+        if str(b[field])!=str(r[field]) or type(b[field]) is not type(r[field]):
+            raise ValueError('host_identity_mismatch')
+    if (not isinstance(b['ssh_host'],str) or
+            not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{1,252}',b['ssh_host']) or
+            type(b['ssh_port']) is not int or not 1<=b['ssh_port']<=65535):
+        raise ValueError('invalid_host_endpoint')
+    return b
+
+
 def apply_recipe(r, staging, prepare):
     if os.geteuid()!=0:
         raise ValueError('root_required')
+    check_vast_host_binding(r, prepare)
     if not Path(KEY_FILE).is_file():
         raise ValueError('ingest_secret_must_exist_before_install')
     if not Path('/usr/bin/script').is_file():
@@ -195,7 +222,7 @@ def apply_recipe(r, staging, prepare):
     prepare.stage_file(Path(MANIFEST),manifest_bytes(r,binary),0o600)
     m=prepare.load_manifest(MANIFEST)
     source=prepare.checks(m,HERE)
-    prepare.apply(m,source,HERE)
+    prepare.apply(m,source,HERE,install_onstart=False)
     return {'status':'staged','mining_started':False,
             'instance_id':r['instance_id'],'gpu_count':r['gpu_count']}
 
