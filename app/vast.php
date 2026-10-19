@@ -8,6 +8,11 @@ function miner_vast_ingest_key(): string {
     if (strlen($key)<32 || strlen($key)>512) throw new RuntimeException('Vast ingest unavailable');
     return $key;
 }
+/** Derive a scoped telemetry HMAC key. Never ship the master to rented GPUs. */
+function miner_vast_instance_key(string $id): string {
+    if(!preg_match('/^[0-9]{4,64}$/D',$id))throw new InvalidArgumentException('Invalid Vast identity');
+    return hash_hmac('sha256','vast-instance-v1:'.$id,miner_vast_ingest_key());
+}
 function miner_vast_schema_ready(): bool {
     try { return (int)miner_db()->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('vast_instances','vast_samples','vast_gpu_samples')")->fetchColumn()===3; }
     catch(Throwable) { return false; }
@@ -24,12 +29,18 @@ function miner_vast_valid_number(mixed $value,float $max): ?float {
     if(!is_numeric($value)||!is_finite((float)$value)||(float)$value<0||(float)$value>$max)return null;
     return (float)$value;
 }
-function miner_vast_ingest(string $raw,string $timestamp,string $signature): void {
+function miner_vast_ingest(string $raw,string $timestamp,string $signature,string $keyVersion=''): void {
     if(strlen($raw)<2||strlen($raw)>16384||!preg_match('/^\d{10}$/D',$timestamp)||abs(time()-(int)$timestamp)>150)throw new InvalidArgumentException('Invalid envelope');
-    $expected=hash_hmac('sha256',$timestamp.'.'.$raw,miner_vast_ingest_key());
-    if(!preg_match('/^[a-f0-9]{64}$/D',$signature)||!hash_equals($expected,$signature))throw new InvalidArgumentException('Invalid signature');
+    // Parse only identity before validating HMAC; do not access DB or trust data.
     $p=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
     if(!is_array($p)||!preg_match('/^[0-9]{4,64}$/D',(string)($p['instance_id']??''))||!preg_match('/^[0-9a-f-]{36}$/D',(string)($p['sample_id']??'')))throw new InvalidArgumentException('Invalid payload');
+    $key=match($keyVersion){
+        'instance-v1'=>miner_vast_instance_key((string)$p['instance_id']),
+        ''=>miner_vast_ingest_key(), // existing hosts, no silent migration
+        default=>throw new InvalidArgumentException('Unsupported key scheme')
+    };
+    $expected=hash_hmac('sha256',$timestamp.'.'.$raw,$key);
+    if(!preg_match('/^[a-f0-9]{64}$/D',$signature)||!hash_equals($expected,$signature))throw new InvalidArgumentException('Invalid signature');
     $observed=DateTimeImmutable::createFromFormat(DateTimeInterface::RFC3339,(string)($p['observed_at']??''));
     if(!$observed||abs(time()-$observed->getTimestamp())>180)throw new InvalidArgumentException('Stale payload');
     $gpus=$p['gpus']??null; if(!is_array($gpus)||count($gpus)<1||count($gpus)>16)throw new InvalidArgumentException('Invalid GPU payload');
