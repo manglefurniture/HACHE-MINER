@@ -132,4 +132,24 @@ with tempfile.TemporaryDirectory() as tmp:
         except ValueError:
             pass
 
+# tmux pane must not be mistaken for current mining when the table freezes.
+from unittest import mock as _mock
+from datetime import datetime, timezone
+now = datetime(2026, 10, 19, 5, 10, 0, tzinfo=timezone.utc).timestamp()
+stamp = '[2026-10-19 05:09:30] '
+pane = '\n'.join(stamp + line(i, 410+i, 100+i, 0) for i in range(8))
+with _mock.patch.object(collector.subprocess, 'check_output', return_value=pane):
+    sample = collector.parse_gpu_table(collector.read_recent_tmux('ssh_tmux', now), 8)
+    assert sample['total_ths'] > 3200
+    try:
+        collector.read_recent_tmux('ssh_tmux', now + 180)
+        raise AssertionError('stale tmux table accepted')
+    except ValueError:
+        pass
+    try:
+        collector.read_recent_tmux('not valid', now)
+        raise AssertionError('invalid tmux session accepted')
+    except ValueError:
+        pass
+
 print('vast collector regression ok')

@@ -93,6 +93,31 @@ def read_recent_log(path, now=None):
     )
 
 
+def read_recent_tmux(session, now=None):
+    """Capture existing pane without disturbing the miner; never refresh stale data."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', session):
+        raise ValueError("invalid tmux session")
+    now = time.time() if now is None else now
+    output = subprocess.check_output(
+        ['tmux', 'capture-pane', '-p', '-J', '-S', '-300', '-t', session],
+        text=True, stderr=subprocess.DEVNULL, timeout=8,
+    )
+    # SRBMiner prints timestamped statistics. A share alone does not refresh a
+    # table; validate the timestamp of the LAST full table in the captured pane.
+    lines = output.splitlines()
+    starts = [i for i, line in enumerate(lines) if ROW.search(ANSI.sub('', line)) and line.startswith('[')]
+    if not starts:
+        raise ValueError("no timestamped tmux GPU statistics")
+    from datetime import datetime, timezone
+    stamp = re.search(r'\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]', lines[starts[-1]])
+    if stamp is None:
+        raise ValueError("missing GPU timestamp")
+    observed = datetime.strptime(stamp.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
+    if observed > now + 30 or now - observed > 120:
+        raise ValueError("stale tmux GPU statistics")
+    return output
+
+
 def gpu_count_from_host():
     # Visible physical GPUs; do not assume two or infer the count from logs.
     output = subprocess.check_output(
@@ -118,7 +143,7 @@ def private_collector_settings(path):
         raise ValueError("collector configuration too large")
     values = json.loads(body.decode('utf-8'))
     expected = {'instance_id', 'gpu_count', 'miner_log', 'ingest_url', 'ingest_key_file'}
-    if not isinstance(values, dict) or set(values) != expected:
+    if not isinstance(values, dict) or not expected <= set(values) or set(values) - expected - {'tmux_session'}:
         raise ValueError("invalid collector configuration keys")
     if not isinstance(values['instance_id'], str) or not re.fullmatch(r'[1-9][0-9]*', values['instance_id']):
         raise ValueError("invalid Vast instance id")
@@ -126,6 +151,9 @@ def private_collector_settings(path):
         raise ValueError("invalid GPU count")
     if values['ingest_url'] != 'https://miner.hacheinteractive.com/vast-ingest':
         raise ValueError("unapproved ingest endpoint")
+    if 'tmux_session' in values and (not isinstance(values['tmux_session'], str) or
+        not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', values['tmux_session'])):
+        raise ValueError('invalid tmux session')
     log = values['miner_log']
     if not isinstance(log, str) or not log.startswith('/') or '\n' in log:
         raise ValueError("invalid miner log path")
@@ -140,6 +168,7 @@ def private_collector_settings(path):
 def main():
     parser = argparse.ArgumentParser(description='Signed per-GPU telemetry for Vast')
     parser.add_argument('--config', help='root-owned 0600 per-instance collector JSON')
+    parser.add_argument('--tmux-session', help='existing tmux session, read-only; legacy mode only')
     args = parser.parse_args()
     if args.config:
         settings, key = private_collector_settings(args.config)
@@ -157,7 +186,10 @@ def main():
         log = os.environ.get('HACHE_SRBMINER_LOG', '/var/log/prl-miner.log')
         configured_count = os.environ.get('HACHE_VAST_GPU_COUNT')
         count = int(configured_count) if configured_count else gpu_count_from_host()
-    payload = parse_gpu_table(read_recent_log(log), count)
+    if args.tmux_session and args.config:
+        raise ValueError('tmux session must be specified in private config')
+    session = settings.get('tmux_session') if args.config else args.tmux_session
+    payload = parse_gpu_table(read_recent_tmux(session) if session else read_recent_log(log), count)
     payload.update({
         'instance_id': instance,
         'sample_id': str(uuid.uuid4()),
