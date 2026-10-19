@@ -185,4 +185,25 @@ with _mock.patch.object(collector.subprocess, 'check_output', return_value=pane)
     except ValueError:
         pass
 
+# Exercise the signed envelope: receipt time must not replace observation time.
+import sys
+settings = {'instance_id': '12345', 'gpu_count': 8, 'miner_log': '/unused',
+            'ingest_url': 'https://miner.hacheinteractive.com/vast-ingest',
+            'tmux_session': 'ssh_tmux'}
+response = _mock.MagicMock()
+response.__enter__.return_value.status = 202
+with _mock.patch.object(sys, 'argv', ['collector', '--config', '/test-config']), \
+     _mock.patch.object(collector, 'private_collector_settings', return_value=(settings, b'test-key')), \
+     _mock.patch.object(collector, 'read_recent_tmux', return_value=pane), \
+     _mock.patch.object(collector.urllib.request, 'urlopen', return_value=response) as send:
+    collector.main()
+    request = send.call_args.args[0]
+    body = json.loads(request.data)
+    assert body['observed_at'] == '2026-10-19T05:09:30Z'
+    assert len(body['gpus']) == 8
+    timestamp = request.get_header('X-hache-timestamp')
+    expected = collector.hmac.new(b'test-key', timestamp.encode() + b'.' + request.data,
+                                 collector.hashlib.sha256).hexdigest()
+    assert request.get_header('X-hache-signature') == expected
+
 print('vast collector regression ok')
