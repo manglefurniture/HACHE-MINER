@@ -101,6 +101,9 @@ class ReceiverTests(unittest.TestCase):
                 with self.assertRaises(r.Rejected):
                     r.configure(p,different,private,root/'releases',owner_uid=os.getuid())
                 self.assertEqual((private/'ingest.key').read_bytes(),b'SafeExamplePrivateBase64UrlValue8888')
+                numeric=recipe();numeric['machine_id']=151300
+                with self.assertRaisesRegex(r.Rejected,'wrong_target_identity'):
+                    r.configure(p,json.dumps({'recipe':numeric,'ingest_key':'S'*25}).encode(),private,root/'releases',owner_uid=os.getuid())
                 wrong=recipe();wrong['instance_id']='999999'
                 with self.assertRaisesRegex(r.Rejected,'wrong_target_identity'):
                     r.configure(p,json.dumps({'recipe':wrong,'ingest_key':'S'*25}).encode(),private,root/'releases',owner_uid=os.getuid())
@@ -128,6 +131,16 @@ class ReceiverTests(unittest.TestCase):
             p['release_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
             with self.assertRaisesRegex(r.Rejected,'archive_type_or_size_wrong'):
                 r.unpack_approved(path.read_bytes(),p)
+
+    def test_verified_scripts_larger_than_private_config_can_be_hashed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'approved.py'
+            p.write_bytes(b'# safe expected script\\n'+b'x'*16000)
+            p.chmod(0o700)
+            with self.assertRaisesRegex(r.Rejected,'private_file_oversize'):
+                r.private_file(p,owner=os.getuid())
+            data=r.private_file(p,owner=os.getuid(),max_bytes=300000)
+            self.assertEqual(r.blob_sha(data),r.blob_sha(p.read_bytes()))
 
     def test_apply_refuses_unstaged_release(self):
         with tempfile.TemporaryDirectory() as tmp:
