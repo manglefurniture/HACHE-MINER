@@ -126,7 +126,7 @@ def checks(m, bundle):
     return source
 
 
-def prepared_files(m, bundle):
+def prepared_files(m, bundle, *, install_onstart=True):
     onstart_conf = "\n".join([
         f"VAST_LAUNCHER={m['launcher_path']}",
         f"VAST_MINER={m['miner_path']}",
@@ -146,13 +146,16 @@ def prepared_files(m, bundle):
         "--config /etc/hache-vast/collector.json "
         ">> /var/log/hache-vast-collector.log 2>&1\n"
     )
-    return (
+    result = [
         (Path("/etc/hache-vast/onstart.conf"), onstart_conf.encode(), 0o600),
         (Path("/etc/hache-vast/collector.json"), collector_conf.encode(), 0o600),
         (Path("/opt/hache-vast/vast-collector.py"), (bundle / "vast-collector.py").read_bytes(), 0o700),
-        (Path("/root/onstart.sh"), (bundle / "vast-onstart.sh").read_bytes(), 0o700),
         (Path("/etc/cron.d/hache-vast-collector"), cron.encode(), 0o644),
-    )
+    ]
+    if install_onstart:
+        result.insert(3, (Path("/root/onstart.sh"),
+                          (bundle / "vast-onstart.sh").read_bytes(), 0o700))
+    return tuple(result)
 
 
 def stage_file(path, data, mode):
@@ -181,7 +184,7 @@ def stage_file(path, data, mode):
         os.unlink(pending)
 
 
-def apply(m, source, bundle):
+def apply(m, source, bundle, *, install_onstart=True):
     # Refuse to modify files on an instance with the same miner already running.
     proc = subprocess.run(["pgrep", "-x", Path(m["miner_path"]).name],
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -189,7 +192,9 @@ def apply(m, source, bundle):
     if proc.returncode != 1:
         raise ValueError("miner already active or process check unavailable; no changes made")
     target = Path(m["miner_path"])
-    files = list(prepared_files(m, bundle))
+    if not install_onstart and (Path('/root/onstart.sh').exists() or Path('/root/onstart.sh').is_symlink()):
+        raise ValueError('existing start hook requires separate approval')
+    files = list(prepared_files(m, bundle, install_onstart=install_onstart))
     # Preflight all destinations before creating anything.
     for dest, data, mode in files:
         if dest.is_symlink() or any(parent.is_symlink() for parent in dest.parents):
