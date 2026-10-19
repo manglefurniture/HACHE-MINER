@@ -23,3 +23,46 @@ Cuando una tarea consista en **buscar, evaluar, alquilar, probar, configurar, re
 Esta es una **regla de aprovisionamiento para agentes/operadores** y no un disparador que por sí mismo descubra o alquile instancias. El procedimiento se ejecuta cuando se trabaja explícitamente con una candidata Vast autorizada. Para alquiler autónomo o despliegue totalmente desatendido se requiere implementar y validar un orquestador independiente con permisos y controles financieros específicos.
 
 Otros cambios del repositorio que no traten instancias Vast quedan fuera de esta regla.
+
+## GPT-ACCESS-001 — entrada operativa para diagnóstico HACHE-MINER
+
+Cuando se solicite investigar o corregir HACHE-MINER, **comprobar accesos conectados
+antes de declarar falta de conexión**. No confundir acceso a herramientas con
+autonomía de un modelo residente en el VPS.
+
+1. **GitHub es la fuente de verdad**: inspeccionar repo, commit, PR y CI; cambios
+   persistentes siempre rama → pruebas → PR → revisión/checks → merge → deploy
+   versionado → comprobación. No modificar código de la aplicación directamente
+   en el VPS ni en las GPU.
+2. **VPS**: preferir Desktop Commander conectado a `hache-natacion` bajo la
+   identidad `gpt-agent` para diagnóstico, consultas y operación limitada; el
+   segundo dispositivo `deploy-hache` solo para despliegues y verificación
+   permitidos. Descubrir los IDs de dispositivo actuales, no asumir que persisten.
+3. **Puerta local**: tras desplegar la extensión de Hache-Base
+   `extensions/mining-ops/access_gateway.py`, usar:
+   `python3 /home/gpt-agent/mining-ops/current/access_gateway.py status`,
+   `query vast.list`, `query salad.targets`, `query telemetry`.
+   Este comando reutiliza el broker privado HACHE-MINER ya existente. Si el
+   release no tiene `access_gateway.py`, usar temporalmente el cliente
+   `/home/gpt-agent/mining-operator/client.py` y `mining_status.py`;
+   registrar cuál vía se verificó de verdad.
+4. **GPU Vast/Salad**: revisar primero proveedor/ID/estado running, luego SSH.
+   Salad publica host/puerto de la instancia en el Portal; Vast ofrece su
+   `ssh-url`. La laptop `Hache` dispone de cliente SSH y varias claves
+   históricas, pero eso NO prueba que estén autorizadas para la GPU actual.
+   Verificar huella de host y clave autorizada por instancia; no copiar claves
+   privadas ni desactivar `StrictHostKeyChecking`.
+5. **Pruebas y sincronización**: los comandos de solo lectura se pueden
+   ejecutar con permiso existente. Reparaciones, arranques, cambios de
+   configuración, despliegues en GPU y acciones facturables requieren intención
+   explícita, identidad/objetivo validados y autorización aplicable. Para Vast,
+   seguir también VAST-001 y VAST-002.
+6. **Seguridad**: sin sudo general, shell remoto irrestricto desde el broker,
+   cambios de privilegios SQL ni préstamos de secretos. La puerta de
+   diagnóstico no equivale a SQLGuard: su transición de privilegios sigue
+   siendo un trabajo independiente. Nunca usar telemetría vieja como
+   prueba de minería activa.
+
+Guía técnica y límites: `manglefurniture/Hache-Base`,
+`extensions/mining-ops/ACCESS_GATEWAY.md`. No duplicar los timers ni los
+controladores existentes de Vast y Salad.
