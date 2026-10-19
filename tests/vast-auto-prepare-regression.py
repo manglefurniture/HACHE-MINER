@@ -102,5 +102,55 @@ with tempfile.TemporaryDirectory() as tmp:
     except ValueError:
         pass
 
+
+# Recipe + --confirm-instance are NOT attestation: require trusted VPS binding.
+with tempfile.TemporaryDirectory() as tmp:
+    p=Path(tmp)/'host-binding.json'
+    r=recipe()
+    binding=dict(instance_id=r['instance_id'],machine_id=r['machine_id'],
+                 host_id=r['host_id'],gpu_count=r['gpu_count'],
+                 ssh_host='ssh8.vast.ai',ssh_port=10566)
+    p.write_text(json.dumps(binding))
+    p.chmod(0o600)
+    prepare=type('Reader',(),{'private_file':staticmethod(lambda name:p)})
+    assert m.check_vast_host_binding(r,prepare,filename=str(p))==binding
+    for bad in [
+        dict(binding,instance_id='555555'),
+        dict(binding,machine_id='99999'),
+        dict(binding,host_id='99999'),
+        dict(binding,gpu_count=4),
+        dict(binding,ssh_host='-unsafe'),
+        dict(binding,ssh_port=0),
+    ]:
+        p.write_text(json.dumps(bad))
+        try:
+            m.check_vast_host_binding(r,prepare,filename=str(p))
+            raise AssertionError('wrong host accepted')
+        except ValueError:
+            pass
+
+# Stage all other files, but never install the Vast auto-start hook.
+prep=m.prepare_module()
+config=json.loads(m.manifest_bytes(recipe(),'/root/hache-vast-staging/SRBMiner-MULTI'))
+with tempfile.TemporaryDirectory() as tmp:
+    t=Path(tmp)
+    for name in ('vast-onstart.sh','vast-collector.py'):
+        (t/name).write_bytes(b'fixture')
+    prepared=prep.prepared_files(config,t,install_onstart=False)
+    assert all(str(dest)!='/root/onstart.sh' for dest,_,_ in prepared)
+    legacy=prep.prepared_files(config,t)
+    assert any(str(dest)=='/root/onstart.sh' for dest,_,_ in legacy)
+
+with mock.patch.object(m.os,'geteuid',return_value=0), \
+     mock.patch.object(m,'check_vast_host_binding'), \
+     mock.patch.object(m.Path,'is_file',return_value=True), \
+     mock.patch.object(m.subprocess,'run',return_value=mock.Mock(returncode=1)), \
+     mock.patch.object(m,'download_and_extract',return_value=Path('/tmp/verified-miner')):
+    mockprep=mock.Mock()
+    mockprep.load_manifest.return_value={'instance_id':'56667162'}
+    result=m.apply_recipe(recipe(),Path('/tmp/isolated-staging'),mockprep)
+    assert result['mining_started'] is False
+    assert mockprep.apply.call_args.kwargs['install_onstart'] is False
+
 # No network access in recipe validation or launcher creation.
 print('VAST_AUTO_PREPARE_REGRESSION_OK')
