@@ -64,3 +64,18 @@ El funcionamiento con una GPU real y shares aceptados requiere prueba
 controlada, alquiler autorizado y presupuesto. Hasta entonces, VAST-004
 es una implementación probada de forma aislada, no una automatización
 integral certificada.
+
+## Firmas HMAC separadas por instancia
+
+El colector nuevo obtiene `ingest.key` (cadena hexadecimal de 64 caracteres)
+de la derivación administrativa:
+`hash_hmac('sha256', 'vast-instance-v1:' . INSTANCE_ID, MINER_VAST_INGEST_KEY)`.
+El secreto maestro **nunca viaja a Vast**. La configuración del colector
+lleva `key_scheme=instance-v1` y envía
+`X-Hache-Key-Version: instance-v1`, que hace al servidor elegir solo
+la clave derivada correspondiente al ID autenticado.
+
+Los colectores anteriores, sin dicha cabecera, se siguen admitiendo
+por compatibilidad; debe planificarse su migración para poder retirar
+posteriormente la aceptación de la clave global compartida. Nunca usar
+la clave maestra en los archivos `*.private.json` de nuevas GPUs.
