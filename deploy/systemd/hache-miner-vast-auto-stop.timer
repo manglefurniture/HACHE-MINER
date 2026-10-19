@@ -1,0 +1,12 @@
+[Unit]
+Description=30-second Vast 56667162 auto-stop safety check
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=30s
+AccuracySec=1s
+Persistent=false
+Unit=hache-miner-vast-auto-stop.service
+
+[Install]
+WantedBy=timers.target

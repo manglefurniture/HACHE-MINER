@@ -1,0 +1,19 @@
+[Unit]
+Description=HACHE-MINER explicitly armed Vast.ai 56667162 auto-stop
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hache-miner
+Group=hache-miner
+WorkingDirectory=/srv/hache-miner/current
+ExecStart=/usr/bin/php -d auto_prepend_file=/etc/hache-miner/load-env.php /srv/hache-miner/current/bin/vast-auto-stop.php
+TimeoutStartSec=35
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/hache-miner
+ReadWritePaths=/var/lib/hache-miner
+UMask=0077
