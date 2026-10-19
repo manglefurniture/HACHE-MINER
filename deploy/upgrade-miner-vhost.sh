@@ -12,6 +12,7 @@ enabled=/etc/nginx/sites-enabled/miner.hacheinteractive.com
 [[ -f "$source" && -f "$vhost" && -L "$enabled" ]] || { echo 'ERROR: miner virtual host missing'; exit 2; }
 [[ "$(readlink -f "$enabled")" == "$vhost" ]] || { echo 'ERROR: unexpected symlink'; exit 2; }
 grep -Fq 'fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;' "$source" || { echo 'ERROR: realpath not configured'; exit 2; }
+grep -Fq 'fastcgi_param SCRIPT_FILENAME $realpath_root/salad-ingest.php;' "$source" || { echo 'ERROR: Salad telemetry route missing'; exit 2; }
 backup="$(mktemp /etc/nginx/sites-available/.miner-vhost-backup.XXXXXXXX)"
 cp -p "$vhost" "$backup"
 rollback() {

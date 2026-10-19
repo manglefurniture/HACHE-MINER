@@ -9,6 +9,7 @@ require_once dirname(__DIR__).'/app/salad-gpu-prices.php';
 require_once dirname(__DIR__).'/app/salad-gpu-identity.php';
 require_once dirname(__DIR__).'/app/salad-log-coverage.php';
 require_once dirname(__DIR__).'/app/salad-instance-id-diagnostic.php';
+require_once dirname(__DIR__).'/app/salad-telemetry.php';
 if(PHP_SAPI!=='cli') {http_response_code(404);exit;}
 date_default_timezone_set('UTC');
 $lockPath=getenv('MINER_POLL_LOCK')?:'/var/lib/hache-miner/poll.lock';
@@ -278,6 +279,12 @@ function miner_poll_salad(string $org,string $project,string $key): void {
                         ||isset($snapshotIds[$id]))
                         throw new RuntimeException('Identificadores de instancia inválidos.');
                     $snapshotIds[$id]=true;
+                }
+                // Keep provider-authenticated machine/workload identity separate
+                // from the log-derived observations used by existing rules.
+                try { miner_salad_telemetry_inventory_sync($org,$project,$group,$nodes); }
+                catch(Throwable $telemetryInventoryError) {
+                    error_log('[hache-miner] optional Salad telemetry inventory unavailable');
                 }
             } catch(Throwable $e) {
                 // Fail closed: a group status alone is not proof of active GPUs.
