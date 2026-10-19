@@ -72,7 +72,7 @@ class ReceiverTests(unittest.TestCase):
             p['release_sha256']=hashlib.sha256(tar.read_bytes()).hexdigest()
             p['files']={name:r.blob_sha(v) for name,v in files.items()}
             with patch.object(r.os,'geteuid',return_value=os.getuid()):
-                status=r.stage(p,tar.read_bytes(),base=root/'releases')
+                status=r.stage(p,tar.read_bytes(),base=root/'releases',owner_uid=os.getuid())
                 self.assertEqual(status,'staged')
                 self.assertEqual(r.stage(p,tar.read_bytes(),base=root/'releases'),'already_staged')
                 self.assertEqual(list((root/'releases').glob('.stage-*')),[])
@@ -90,22 +90,22 @@ class ReceiverTests(unittest.TestCase):
             p=fake_policy()
             raw=json.dumps({'recipe':recipe(),'ingest_key':'SafeExamplePrivateBase64UrlValue8888'}).encode()
             with patch.object(r.os,'geteuid',return_value=os.getuid()):
-                self.assertEqual(r.configure(p,raw,root/'private',root/'releases'),'configured')
+                self.assertEqual(r.configure(p,raw,root/'private',root/'releases',owner_uid=os.getuid()),'configured')
                 private=root/'private'
                 self.assertEqual({x.name for x in private.iterdir()},
                                  {'approved-recipe.json','ingest.key','host-binding.json'})
                 self.assertEqual((private/'ingest.key').stat().st_mode & 0o777,0o600)
                 self.assertEqual((private/'ingest.key').read_bytes(),b'SafeExamplePrivateBase64UrlValue8888')
-                self.assertEqual(r.configure(p,raw,private,root/'releases'),'configured')
+                self.assertEqual(r.configure(p,raw,private,root/'releases',owner_uid=os.getuid()),'configured')
                 different=json.dumps({'recipe':recipe(),'ingest_key':'ChangedDifferentPrivateBase64Url88'}).encode()
                 with self.assertRaises(r.Rejected):
-                    r.configure(p,different,private,root/'releases')
+                    r.configure(p,different,private,root/'releases',owner_uid=os.getuid())
                 self.assertEqual((private/'ingest.key').read_bytes(),b'SafeExamplePrivateBase64UrlValue8888')
                 wrong=recipe();wrong['instance_id']='999999'
                 with self.assertRaisesRegex(r.Rejected,'wrong_target_identity'):
-                    r.configure(p,json.dumps({'recipe':wrong,'ingest_key':'S'*25}).encode(),private,root/'releases')
+                    r.configure(p,json.dumps({'recipe':wrong,'ingest_key':'S'*25}).encode(),private,root/'releases',owner_uid=os.getuid())
                 with self.assertRaises(r.Rejected):
-                    r.configure(p,b'{incomplete',private,root/'releases')
+                    r.configure(p,b'{incomplete',private,root/'releases',owner_uid=os.getuid())
 
     def test_forced_command_allows_only_three_exact_actions(self):
         p=fake_policy()
