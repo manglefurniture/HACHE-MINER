@@ -12,9 +12,9 @@ collector = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(collector)
 
 
-def line(index, speed=379.67, accepted=142, rejected=2):
+def line(index, speed=379.67, accepted=142, rejected=2, unit='TH/s'):
     return (
-        f'#' + str(index) + f' RTX 5090 {speed:.2f} TH/s '
+        f'#' + str(index) + f' RTX 5090 {speed:.2f} {unit} '
         f'497.4W 0.763 100% 68C 2272 13801 {accepted} {rejected} 0'
     )
 
@@ -50,6 +50,38 @@ rejects(line(0) + '\n' + line(1) + '\n' + ('noise\n' * 50), 2)
 zero = collector.parse_gpu_table(line(0, 0), 1)
 assert zero['total_ths'] == 0
 assert zero['gpus'][0]['state'] == 'inactive'
+
+# Eight physical GPUs remain present when SRBMiner switches units at low speed.
+from math import isclose
+units = [('H/s', 1e-12), ('KH/s', 1e-9), ('MH/s', 1e-6),
+         ('GH/s', 1e-3), ('TH/s', 1)]
+for unit, scale in units:
+    eight = '\n'.join(line(i, 123.45, unit=unit) for i in range(8))
+    converted = collector.parse_gpu_table(eight, 8)
+    assert isclose(converted['total_ths'], 8 * 123.45 * scale)
+    assert all(isclose(g['hashrate_ths'], 123.45 * scale) for g in converted['gpus'])
+
+mixed = '\n'.join(line(i, 100, unit=units[i % 5][0]) for i in range(8))
+assert isclose(collector.parse_gpu_table(mixed, 8)['total_ths'],
+               sum(100 * units[i % 5][1] for i in range(8)))
+degraded = '\n'.join(line(i, 0, unit='H/s') if i % 2 == 0 else
+                     line(i, 383.25) for i in range(8))
+degraded_sample = collector.parse_gpu_table(degraded, 8)
+assert degraded_sample['total_ths'] == 1533
+assert [g['index'] for g in degraded_sample['gpus']] == list(range(8))
+assert [g['state'] for g in degraded_sample['gpus']] == ['inactive', 'mining'] * 4
+assert all(g['hashrate_ths'] == 0 for g in degraded_sample['gpus'][::2])
+all_zero = '\n'.join(line(i, 0, unit='H/s') for i in range(8))
+assert collector.parse_gpu_table(all_zero, 8)['total_ths'] == 0
+normal = '\n'.join(line(i, 412) for i in range(8))
+assert collector.parse_gpu_table(normal + '\n' + degraded, 8)['total_ths'] == 1533
+rejects(normal + '\n' + '\n'.join(degraded.splitlines()[:-1]), 8)
+rejects('\n'.join(degraded.splitlines()[::-1]), 8)
+rejects(degraded + '\n' + line(7, 0, unit='H/s'), 8)
+rejects(degraded.replace('H/s', 'PH/s'), 8)
+# Bounds apply after conversion, including large raw H/s values.
+assert collector.parse_gpu_table(line(0, 412e12, unit='H/s'), 1)['total_ths'] == 412
+rejects(line(0, 20001e12, unit='H/s'), 1)
 
 # A frozen local miner log must NOT masquerade as fresh mining.
 with tempfile.TemporaryDirectory() as tmp:
@@ -139,6 +171,7 @@ now = datetime(2026, 10, 19, 5, 10, 0, tzinfo=timezone.utc).timestamp()
 stamp = '[2026-10-19 05:09:30] '
 pane = '\n'.join(stamp + line(i, 410+i, 100+i, 0) for i in range(8))
 with _mock.patch.object(collector.subprocess, 'check_output', return_value=pane):
+    assert collector.tmux_observed_at(pane) == now - 30
     sample = collector.parse_gpu_table(collector.read_recent_tmux('ssh_tmux', now), 8)
     assert sample['total_ths'] > 3200
     try:
@@ -151,5 +184,26 @@ with _mock.patch.object(collector.subprocess, 'check_output', return_value=pane)
         raise AssertionError('invalid tmux session accepted')
     except ValueError:
         pass
+
+# Exercise the signed envelope: receipt time must not replace observation time.
+import sys
+settings = {'instance_id': '12345', 'gpu_count': 8, 'miner_log': '/unused',
+            'ingest_url': 'https://miner.hacheinteractive.com/vast-ingest',
+            'tmux_session': 'ssh_tmux'}
+response = _mock.MagicMock()
+response.__enter__.return_value.status = 202
+with _mock.patch.object(sys, 'argv', ['collector', '--config', '/test-config']), \
+     _mock.patch.object(collector, 'private_collector_settings', return_value=(settings, b'test-key')), \
+     _mock.patch.object(collector, 'read_recent_tmux', return_value=pane), \
+     _mock.patch.object(collector.urllib.request, 'urlopen', return_value=response) as send:
+    collector.main()
+    request = send.call_args.args[0]
+    body = json.loads(request.data)
+    assert body['observed_at'] == '2026-10-19T05:09:30Z'
+    assert len(body['gpus']) == 8
+    timestamp = request.get_header('X-hache-timestamp')
+    expected = collector.hmac.new(b'test-key', timestamp.encode() + b'.' + request.data,
+                                 collector.hashlib.sha256).hexdigest()
+    assert request.get_header('X-hache-signature') == expected
 
 print('vast collector regression ok')
