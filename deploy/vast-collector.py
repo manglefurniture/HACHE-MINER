@@ -105,7 +105,7 @@ def read_recent_tmux(session, now=None):
     # SRBMiner prints timestamped statistics. A share alone does not refresh a
     # table; validate the timestamp of the LAST full table in the captured pane.
     lines = output.splitlines()
-    starts = [i for i, line in enumerate(lines) if re.search(r'#0\\s+RTX', line) is not None and line.startswith('[')]
+    starts = [i for i, line in enumerate(lines) if '#0' in line and 'RTX' in line and line.startswith('[')]
     if not starts:
         raise ValueError("no timestamped tmux GPU statistics")
     from datetime import datetime, timezone
