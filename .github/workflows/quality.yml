@@ -52,6 +52,7 @@ jobs:
           php tests/diagnostics-regression.php
           php tests/vast-regression.php
           php tests/vast-watchdog-regression.php
+          php tests/vast-auto-stop-regression.php
           python3 tests/vast-collector-regression.py
       - name: Public artifact must not contain local secrets
         shell: bash
