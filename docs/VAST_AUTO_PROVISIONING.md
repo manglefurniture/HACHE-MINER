@@ -52,7 +52,9 @@ python3 deploy/vast-auto-prepare.py --recipe /etc/hache-vast/approved-recipe.jso
 
 El instalador genera el lanzador para `pearlhash`, `--tls true`,
 `--disable-cpu`, billetera y worker único. Comprueba GPU físicas, revisa SHA,
-rechaza conflictos y usa `flock` mediante el `onstart` existente.
+rechaza conflictos y NO instala ni habilita `/root/onstart.sh` durante `--apply`.
+Si ese hook ya existe, la preparación se detiene: no se considera inofensivo
+un arranque automático preexistente.
 
 **Prerequisito que sigue requiriendo un canal autorizado:** la clave HMAC
 del receptor debe existir en la GPU en `/etc/hache-vast/ingest.key`, root
@@ -118,3 +120,24 @@ eliminó por completo del instalador. Los metadatos de aprobación pueden
 ser legibles por `gpt-agent`, pero siempre serán propiedad de root,
 sin permisos de escritura para grupos u otros usuarios. No incorporan
 claves privadas, HMAC ni credenciales de Kryptex.
+
+## Correcciones Codex y protección de instancia (P1)
+
+Antes de permitir `--apply`, se necesita el archivo privado
+`/etc/hache-vast/host-binding.json`, creado **exclusivamente desde el
+transporte SSH de confianza del VPS**, después de comparar el perfil con la
+API actual de Vast y su huella de servidor. Debe tener ID de instancia,
+`machine_id`, `host_id`, GPU, `ssh_host` y `ssh_port`; la receta se
+compara con todos esos datos. No basta con que un operador repita el ID
+como argumento ni con que `nvidia-smi` reporte ocho GPU.
+
+El alta inicial del host ocurre durante `stage` usando la conexión SSH
+ya verificada, la aprobación administrativa del commit y la GPU específica.
+El acceso root por otros canales no debe considerarse una vía aprobada de
+instalación. El ejecutor seguro de la pasarela debe consumir un permiso
+de un solo uso antes de contactar la GPU; el envío directo desde
+`gpt-agent` queda bloqueado hasta instalar ese ejecutor.
+
+La instalación no instala `/root/onstart.sh` y rechaza un hook existente;
+el watchdog/arranque del minero se activarán después mediante una
+autorización separada, nunca como efecto secundario de preparar archivos.
