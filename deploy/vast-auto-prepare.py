@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """VAST-003: prepare SRBMiner from a pinned, owner-approved release on one GPU host.
 
-No GPU rental, Vast state change, or miner start is performed by --apply.
-A separate --start requires exact instance confirmation; it is NEVER implicit.
+No GPU rental, Vast state change, or miner start is permitted by this tool.
+A later minering-start action will require a separate grant, not --apply.
 """
 import argparse
 from decimal import Decimal, InvalidOperation
@@ -180,7 +180,7 @@ def manifest_bytes(r, staged_binary):
     return (json.dumps(data, sort_keys=True)+'\n').encode()
 
 
-def apply_recipe(r, staging, prepare, *, starting=False):
+def apply_recipe(r, staging, prepare):
     if os.geteuid()!=0:
         raise ValueError('root_required')
     if not Path(KEY_FILE).is_file():
@@ -196,11 +196,7 @@ def apply_recipe(r, staging, prepare, *, starting=False):
     m=prepare.load_manifest(MANIFEST)
     source=prepare.checks(m,HERE)
     prepare.apply(m,source,HERE)
-    if starting:
-        # Start only after *separate* explicit instance-scoped approval.
-        # This does NOT authorize a rental; renting/running GPU is governed by Vast broker.
-        subprocess.run(['/root/onstart.sh'],check=True,timeout=35)
-    return {'status':'start_requested' if starting else 'staged',
+    return {'status':'staged','mining_started':False,
             'instance_id':r['instance_id'],'gpu_count':r['gpu_count']}
 
 
@@ -208,12 +204,9 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--recipe',default='/etc/hache-vast/approved-recipe.json')
     p.add_argument('--apply',action='store_true')
-    p.add_argument('--start',action='store_true')
     p.add_argument('--confirm-instance')
     args=p.parse_args()
     r=load_recipe(args.recipe)
-    if args.start and not args.apply:
-        p.error('--start_requires_apply')
     if args.apply and args.confirm_instance!=r['instance_id']:
         p.error('confirmation_must_match_instance')
     if not args.apply:
@@ -221,7 +214,7 @@ def main():
                           'instance_id':r['instance_id'],'gpu_count':r['gpu_count'],
                           'miner_version':r['miner_version']}))
         return
-    result=apply_recipe(r,Path('/root/hache-vast-staging'),prepare_module(),starting=args.start)
+    result=apply_recipe(r,Path('/root/hache-vast-staging'),prepare_module())
     print(json.dumps(result))
 
 
