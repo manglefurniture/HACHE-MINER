@@ -177,6 +177,7 @@ def manifest_bytes(r, staged_binary):
         'miner_source':str(staged_binary),'launcher_path':LAUNCHER,
         'wallet_worker':r['wallet']+'.vast-'+r['instance_id'],
         'miner_log':LOG_FILE,'ingest_key_file':KEY_FILE,
+        'key_scheme':'instance-v1',
     }
     return (json.dumps(data, sort_keys=True)+'\n').encode()
 

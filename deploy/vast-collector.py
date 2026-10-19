@@ -151,7 +151,7 @@ def private_collector_settings(path):
         raise ValueError("collector configuration too large")
     values = json.loads(body.decode('utf-8'))
     expected = {'instance_id', 'gpu_count', 'miner_log', 'ingest_url', 'ingest_key_file'}
-    if not isinstance(values, dict) or not expected <= set(values) or set(values) - expected - {'tmux_session'}:
+    if not isinstance(values, dict) or not expected <= set(values) or set(values) - expected - {'tmux_session', 'key_scheme'}:
         raise ValueError("invalid collector configuration keys")
     if not isinstance(values['instance_id'], str) or not re.fullmatch(r'[1-9][0-9]*', values['instance_id']):
         raise ValueError("invalid Vast instance id")
@@ -162,6 +162,8 @@ def private_collector_settings(path):
     if 'tmux_session' in values and (not isinstance(values['tmux_session'], str) or
         not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', values['tmux_session'])):
         raise ValueError('invalid tmux session')
+    if 'key_scheme' in values and values['key_scheme']!='instance-v1':
+        raise ValueError('unsupported per-instance HMAC scheme')
     log = values['miner_log']
     if not isinstance(log, str) or not log.startswith('/') or '\n' in log:
         raise ValueError("invalid miner log path")
@@ -208,14 +210,16 @@ def main():
     raw = json.dumps(payload, separators=(',', ':')).encode()
     timestamp = str(int(time.time()))
     signature = hmac.new(key, timestamp.encode() + b'.' + raw, hashlib.sha256).hexdigest()
+    headers={
+        'Content-Type': 'application/json',
+        'User-Agent': 'Hache-Vast-Collector/1.1',
+        'X-Hache-Timestamp': timestamp,
+        'X-Hache-Signature': signature,
+    }
+    if args.config and settings.get('key_scheme')=='instance-v1':
+        headers['X-Hache-Key-Version']='instance-v1'
     request = urllib.request.Request(
-        url, data=raw, method='POST',
-        headers={
-            'Content-Type': 'application/json',
-            'User-Agent': 'Hache-Vast-Collector/1.1',
-            'X-Hache-Timestamp': timestamp,
-            'X-Hache-Signature': signature,
-        },
+        url, data=raw, method='POST', headers=headers
     )
     with urllib.request.urlopen(request, timeout=12) as response:
         if response.status != 202:
