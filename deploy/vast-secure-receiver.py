@@ -95,22 +95,22 @@ def read_payload(src,limit=LIMIT):
     return payload
 
 
-def secure_dir(path, *, create=False):
+def secure_dir(path, *, create=False, owner_uid=0):
     path=Path(path)
     if create and not path.exists() and not path.is_symlink():
         path.mkdir(parents=True,mode=0o700)
     s=path.lstat()
-    if not stat.S_ISDIR(s.st_mode) or s.st_uid!=0 or s.st_mode & 0o077:
+    if not stat.S_ISDIR(s.st_mode) or s.st_uid!=owner_uid or s.st_mode & 0o077:
         raise Rejected('unsafe_private_directory')
     return path
 
 
-def lock_release(base=BASE):
-    base=secure_dir(base,create=True)
+def lock_release(base=BASE,*,owner_uid=0):
+    base=secure_dir(base,create=True,owner_uid=owner_uid)
     fd=os.open(base/'.provision.lock',os.O_CREAT|os.O_RDWR|
                getattr(os,'O_NOFOLLOW',0),0o600)
     info=os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_mode & 0o077:
+    if not stat.S_ISREG(info.st_mode) or info.st_uid!=owner_uid or info.st_mode & 0o077:
         os.close(fd)
         raise Rejected('unsafe_lock')
     fcntl.flock(fd,fcntl.LOCK_EX)
@@ -138,7 +138,7 @@ def unpack_approved(data,policy):
         return files
 
 
-def verify_release(folder, expected):
+def verify_release(folder, expected, *, owner_uid=0):
     if folder.is_symlink() or not folder.is_dir():
         raise Rejected('release_missing_or_replaced')
     if {p.name for p in folder.iterdir()}!=set(expected):
@@ -146,19 +146,19 @@ def verify_release(folder, expected):
     for name,data in expected.items():
         item=folder/name
         info=item.lstat()
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=owner_uid or
                 info.st_mode & 0o022 or item.read_bytes()!=data):
             raise Rejected('staged_release_changed')
 
 
-def stage(policy,payload,base=BASE):
+def stage(policy,payload,base=BASE,*,owner_uid=0):
     expected=unpack_approved(payload,policy)
     dest=Path(base)/policy['release_commit']
-    base=secure_dir(base,create=True)
-    fd=lock_release(base)
+    base=secure_dir(base,create=True,owner_uid=owner_uid)
+    fd=lock_release(base,owner_uid=owner_uid)
     try:
         if dest.exists() or dest.is_symlink():
-            verify_release(dest,expected)
+            verify_release(dest,expected,owner_uid=owner_uid)
             return 'already_staged'
         tmp=Path(tempfile.mkdtemp(prefix='.stage-',dir=base))
         try:
@@ -170,7 +170,7 @@ def stage(policy,payload,base=BASE):
                     out.write(data)
                     out.flush()
                     os.fsync(out.fileno())
-            verify_release(tmp,expected)
+            verify_release(tmp,expected,owner_uid=owner_uid)
             os.rename(tmp,dest)
         finally:
             if tmp.exists():
@@ -212,13 +212,13 @@ def validate_private_config(policy,raw):
         raise Rejected('configuration_rejected') from None
 
 
-def install_private(directory, files):
+def install_private(directory, files, *, owner_uid=0):
     """Atomic create of each immutable private file, fail before any replacements."""
-    directory=secure_dir(directory,create=True)
+    directory=secure_dir(directory,create=True,owner_uid=owner_uid)
     for name,data in files.items():
         path=directory/name
         if path.exists() or path.is_symlink():
-            if path.is_symlink() or private_file(path)!=data:
+            if path.is_symlink() or private_file(path,owner=owner_uid)!=data:
                 raise Rejected('existing_private_config_conflict')
     for name,data in files.items():
         dest=directory/name
@@ -230,15 +230,15 @@ def install_private(directory, files):
             out.write(data);out.flush();os.fsync(out.fileno())
 
 
-def configure(policy,payload,private=PRIVATE,base=BASE):
+def configure(policy,payload,private=PRIVATE,base=BASE,*,owner_uid=0):
     recipe,key=validate_private_config(policy,payload)
     binding={name:policy[name] if name not in ('machine_id','host_id') else str(policy[name])
              for name in BINDING_FIELDS}
     files={'approved-recipe.json':recipe,'ingest.key':key,
            'host-binding.json':(json.dumps(binding,sort_keys=True,separators=(',',':'))+'\n').encode()}
-    fd=lock_release(base)
+    fd=lock_release(base,owner_uid=owner_uid)
     try:
-        install_private(private,files)
+        install_private(private,files,owner_uid=owner_uid)
     finally:
         os.close(fd)
     return 'configured'
