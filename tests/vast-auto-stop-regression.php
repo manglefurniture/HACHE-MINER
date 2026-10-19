@@ -8,11 +8,11 @@ function sample(int $id,int $age,float $hash,int $now):array {
   $s=gmdate('Y-m-d H:i:s',$now-$age);
   return ['id'=>$id,'received_at'=>$s,'observed_at'=>$s,'total_ths'=>$hash];
 }
-$good=[sample(3,5,2900,$now),sample(2,35,2910,$now),sample(1,65,2890,$now)];
-$low=[sample(3,5,2750,$now),sample(2,35,2700,$now),sample(1,65,2600,$now)];
+$good=[sample(4,5,2900,$now),sample(3,35,2910,$now),sample(2,65,2890,$now),sample(1,95,2910,$now)];
+$low=[sample(4,5,2750,$now),sample(3,35,2700,$now),sample(2,65,2600,$now),sample(1,95,2600,$now)];
 check(miner_vast_stop_reason($i,$good,$now,$now-400)===null,'healthy');
 check(miner_vast_stop_reason($i,$low,$now,$now-400)==='hashrate_low','low stop');
-check(miner_vast_stop_reason($i,array_slice($low,0,2),$now,$now-400)===null,'two reads not enough');
+check(miner_vast_stop_reason($i,array_slice($low,0,3),$now,$now-400)===null,'three reads not enough');
 check(miner_vast_stop_reason($i,$low,$now,$now-100)===null,'arming grace');
 check(miner_vast_stop_reason(['instance_id'=>'56658416','gpu_count'=>2],$low,$now,$now-400)===null,'target pin');
 check(miner_vast_stop_reason($i,[sample(3,185,2900,$now)],$now,$now-400)==='telemetry_lost','telemetry timeout');
