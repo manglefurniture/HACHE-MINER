@@ -34,7 +34,7 @@ function miner_vast_stop_reason(array $instance, array $samples, int $now, int $
 /** No credentials in source, CLI arguments, logs or URLs. */
 function miner_vast_stop_api(string $apiKey, string $id): bool {
     if($id!=='56667162' || strlen($apiKey)<20 || preg_match('/\s/',$apiKey)) throw new RuntimeException('Invalid stop authorization');
-    $ch=curl_init('https://console.vast.ai/api/v0/instances/'.$id);
+    $ch=curl_init('https://console.vast.ai/api/v0/instances/'.$id.'/');
     if($ch===false) throw new RuntimeException('Vast transport missing');
     curl_setopt_array($ch,[
         CURLOPT_CUSTOMREQUEST=>'PUT',
