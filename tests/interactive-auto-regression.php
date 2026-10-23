@@ -100,23 +100,27 @@ auto_check(miner_auto_prl_metric($high,$now,'medium')===null,
     'High readings must not trigger Medium relocation');
 auto_check(miner_auto_prl_metric($medium,$now,'high')===null,'Medium readings must not trigger High');
 
-// RTX 5090 desktop High: strictly below 375 TH/s in two valid ~5-minute
+// RTX 5090 desktop High: strictly below 400 TH/s in two valid ~5-minute
 // observations of the same individual instance. Laptop is never eligible.
 $high5090=[
- $mediumRow('2026-10-09 21:09:00',374.99,'high','NVIDIA GeForce RTX 5090'),
- $mediumRow('2026-10-09 21:04:00',374.00,'high','RTX 5090'),
+ $mediumRow('2026-10-09 21:09:00',399.99,'high','NVIDIA GeForce RTX 5090'),
+ $mediumRow('2026-10-09 21:04:00',399.00,'high','RTX 5090'),
  $mediumRow('2026-10-09 20:59:00',415.00,'high','RTX 5090')
 ];
 $high5090Good=miner_auto_prl_metric($high5090,$now,'high');
 auto_check($high5090Good!==null && $high5090Good['span_seconds']===300,
-    'Desktop RTX 5090 High requires two consecutive sub-375 readings');
-auto_check($high5090Good['average_ths']===374.5,'5090 policy must use only two newest readings');
+    'Desktop RTX 5090 High requires two consecutive sub-400 readings');
+auto_check($high5090Good['average_ths']===399.5,'5090 policy must use only two newest readings');
+auto_check(miner_auto_prl_metric([
+    $mediumRow('2026-10-09 21:09:00',390.0,'high','RTX 5090'),
+    $mediumRow('2026-10-09 21:04:00',395.0,'high','RTX 5090')],$now,'high')!==null,
+    '5090 readings between old 375 and new 400 must trigger after two observations');
 auto_check(miner_auto_prl_metric([$high5090[0]],$now,'high')===null,
     'A single 5090 High reading never relocates');
-auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',375,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
-    'Exactly 375 TH/s in newest 5090 reading must reset');
-auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',375,'high','RTX 5090')],$now,'high')===null,
-    'Exactly 375 TH/s in older 5090 reading must reset');
+auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',400,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
+    'Exactly 400 TH/s in newest 5090 reading must reset');
+auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',400,'high','RTX 5090')],$now,'high')===null,
+    'Exactly 400 TH/s in older 5090 reading must reset');
 auto_check(miner_auto_prl_metric([$mediumRow('2026-10-09 21:09:00',415,'high','RTX 5090'),$high5090[1]],$now,'high')===null,
     'A recovered 5090 High reading must reset');
 auto_check(miner_auto_prl_metric([$high5090[0],$mediumRow('2026-10-09 21:04:00',154.5,'high','RTX 4070 Ti SUPER')],$now,'high')===null,
