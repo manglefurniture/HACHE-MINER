@@ -14,11 +14,11 @@ function miner_auto_low_prl_metric(array $rows, int $now): ?array {
 }
 /**
  * RTX 4070 Ti SUPER: Low <=125, Medium <145, High <155 TH/s.
- * Desktop RTX 5090 at High only: <375 TH/s. Model normalization deliberately
+ * Desktop RTX 5090 at High only: <400 TH/s. Model normalization deliberately
  * excludes Laptop, Ti, D and unverified variants. Never extrapolate across GPUs.
  */
 function miner_auto_prl_below_threshold(string $gpu,float $hash,string $priority):bool {
-    if($priority==='high' && miner_gpu_model_key($gpu)==='rtx5090')return $hash<375.0;
+    if($priority==='high' && miner_gpu_model_key($gpu)==='rtx5090')return $hash<400.0;
     if(!str_contains(strtoupper($gpu),'4070 TI SUPER'))return false;
     return match($priority) {
         'low'=>$hash<=125.0,
